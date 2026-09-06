@@ -1,0 +1,17 @@
+{
+  "name": "AI 額度儀表板",
+  "short_name": "AI 額度",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf3",
+  "theme_color": "#b8762e",
+  "description": "Self-hosted AI usage quota dashboard",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

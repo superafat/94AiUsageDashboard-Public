@@ -1,0 +1,19 @@
+{
+  "schema": "openusage.limits.v1",
+  "providers": {
+    "antigravity": {
+      "displayName": "Antigravity",
+      "plan": "Ultra",
+      "fetchedAt": "2026-09-05T10:00:00.000Z",
+      "expiresAt": "2026-09-05T10:05:00.000Z",
+      "stale": false,
+      "resources": {
+        "geminiSession": {"kind":"consumption","unit":"percent","used":4,"limit":100,"remaining":96,"resetsAt":"2026-09-05T13:50:17.000Z"},
+        "geminiWeekly": {"kind":"consumption","unit":"percent","used":23,"limit":100,"remaining":77,"resetsAt":"2026-09-10T21:43:43.000Z"},
+        "nonGeminiSession": {"kind":"consumption","unit":"percent","used":10,"limit":100,"remaining":90,"resetsAt":"2026-09-05T16:11:12.000Z"},
+        "nonGeminiWeekly": {"kind":"consumption","unit":"percent","used":78,"limit":100,"remaining":22,"resetsAt":"2026-09-06T04:16:27.000Z"}
+      }
+    }
+  },
+  "errors": []
+}

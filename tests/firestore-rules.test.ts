@@ -1,0 +1,119 @@
+import { writeUsageHistory } from '@94ai/firebase';
+import fs from 'node:fs';
+import { afterAll, beforeAll, describe, it } from 'vitest';
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { collectionGroup, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+
+let env: RulesTestEnvironment;
+const path = (uid: string) => `users/${uid}/devices/device-1/providers/codex`;
+const historyPath = (uid: string) => `users/${uid}/devices/device-1/history/codex`;
+const healthPath = (uid: string) => `users/${uid}/devices/device-1/health/current`;
+const valid = (uid: string) => ({
+  schemaVersion: 1,
+  userId: uid,
+  deviceId: 'device-1',
+  providerId: 'codex',
+  plan: 'Plus',
+  fetchedAt: '2026-09-05T10:00:00.000Z',
+  syncedAt: '2026-09-05T10:00:05.000Z',
+  expiresAt: '2026-09-05T10:05:00.000Z',
+  stale: false,
+  resources: { session: { kind: 'consumption', unit: 'percent', remaining: 51 } },
+  sourceVersion: 'openusage.limits.v1',
+});
+
+
+const validHistory = (uid: string) => ({
+  schemaVersion: 1,
+  userId: uid,
+  deviceId: 'device-1',
+  providerId: 'codex',
+  syncedAt: '2026-09-06T00:00:00.000Z',
+  currency: 'USD',
+  periods: {
+    today: { tokens: 100, estimatedCostUsd: 1.5 },
+    yesterday: { tokens: 80 },
+    last30Days: { tokens: 8000, estimatedCostUsd: 120 },
+  },
+  daily: [{ date: '2026-09-06', tokens: 100, estimatedCostUsd: 1.5, finalized: false }],
+});
+
+
+const validHealth = (uid: string) => ({
+  schemaVersion: 1, userId: uid, deviceId: 'device-1', updatedAt: '2026-09-06T10:00:00.000Z',
+  engine: 'ready', background: 'ready', sync: 'ready', providerReadyCount: 3, providerWarningCount: 1,
+});
+
+beforeAll(async () => {
+  env = await initializeTestEnvironment({
+    projectId: 'demo-94aiusage',
+    firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') },
+  });
+});
+
+afterAll(async () => env.cleanup());
+
+describe('Firestore usage snapshot rules', () => {
+  it('rejects unauthenticated reads and writes', async () => {
+    const db = env.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, path('alice'))));
+    await assertFails(setDoc(doc(db, path('alice')), valid('alice')));
+  });
+
+  it('allows owner read/write but rejects cross-UID access', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(setDoc(doc(alice, path('alice')), valid('alice')));
+    await assertSucceeds(getDoc(doc(alice, path('alice'))));
+    await assertFails(getDoc(doc(bob, path('alice'))));
+    await assertFails(setDoc(doc(bob, path('alice')), valid('alice')));
+  });
+
+  it('allows the owner-scoped collection-group query used by the web app', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(setDoc(doc(alice, path('alice')), valid('alice')));
+    const snapshots = query(collectionGroup(alice, 'providers'), where('userId', '==', 'alice'));
+    await assertSucceeds(getDocs(snapshots));
+  });
+
+  it('rejects invalid schema and oversized resource maps', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertFails(setDoc(doc(alice, path('alice')), { ...valid('alice'), access_token: 'secret' }));
+    const resources = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`r${i}`, { kind: 'balance', unit: 'count', available: 1 }]));
+    await assertFails(setDoc(doc(alice, path('alice')), { ...valid('alice'), resources }));
+  });
+
+  it('isolates owner history and rejects secret-bearing or oversized history', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(setDoc(doc(alice, historyPath('alice')), validHistory('alice')));
+    const thirtyOneDays = Array.from({ length: 31 }, (_, index) => ({
+      date: `2026-${index < 25 ? '08' : '09'}-${String(index < 25 ? index + 1 : index - 24).padStart(2, '0')}`,
+      tokens: 50_000_000 + index * 1_000_000,
+      ...(index >= 29 ? { estimatedCostUsd: 2.5 + index } : {}),
+      finalized: index < 30,
+    }));
+    await assertSucceeds(writeUsageHistory(alice, 'alice', { ...validHistory('alice'), daily: thirtyOneDays } as import('@94ai/core').UsageHistorySnapshot));
+    await assertSucceeds(getDoc(doc(alice, historyPath('alice'))));
+    await assertFails(getDoc(doc(bob, historyPath('alice'))));
+    await assertFails(setDoc(doc(bob, historyPath('alice')), validHistory('alice')));
+    await assertFails(setDoc(doc(alice, historyPath('alice')), { ...validHistory('alice'), prompt: 'secret' }));
+    await assertFails(setDoc(doc(alice, historyPath('alice')), { ...validHistory('alice'), daily: [{ date: '2026-09-06', tokens: 10, finalized: true, prompt: 'private' }] }));
+    await assertFails(setDoc(doc(alice, historyPath('alice')), { ...validHistory('alice'), daily: [{ date: '2026-09-06', tokens: 10, finalized: true, token: 'secret' }] }));
+    await assertFails(setDoc(doc(alice, historyPath('alice')), { ...validHistory('alice'), daily: Array.from({ length: 36 }, (_, i) => ({ date: `2026-08-${String(i + 1).padStart(2, '0')}`, tokens: i, finalized: true })) }));
+  });
+
+
+  it('isolates minimal device health and rejects diagnostics or cross-UID writes', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(setDoc(doc(alice, healthPath('alice')), validHealth('alice')));
+    await assertSucceeds(getDoc(doc(alice, healthPath('alice'))));
+    await assertFails(getDoc(doc(bob, healthPath('alice'))));
+    await assertFails(setDoc(doc(bob, healthPath('alice')), validHealth('alice')));
+    for (const key of ['token', 'path', 'stderr']) {
+      await assertFails(setDoc(doc(alice, healthPath('alice')), { ...validHealth('alice'), [key]: 'private' }));
+    }
+  });
+
+});

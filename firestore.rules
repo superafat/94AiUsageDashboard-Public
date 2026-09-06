@@ -1,0 +1,153 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInAs(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validSnapshot(uid, deviceId, providerId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'schemaVersion', 'userId', 'deviceId', 'providerId', 'plan',
+          'fetchedAt', 'syncedAt', 'expiresAt', 'stale', 'resources',
+          'sourceVersion', 'errorSummary'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'userId', 'deviceId', 'providerId',
+          'fetchedAt', 'syncedAt', 'expiresAt', 'stale', 'resources'
+        ])
+        && data.schemaVersion == 1
+        && data.userId == uid
+        && data.deviceId == deviceId
+        && data.providerId == providerId
+        && data.fetchedAt is string
+        && data.syncedAt is string
+        && data.expiresAt is string
+        && data.stale is bool
+        && data.resources is map
+        && data.resources.size() <= 64
+        && (!('plan' in data) || data.plan is string)
+        && (!('sourceVersion' in data) || data.sourceVersion is string)
+        && (!('errorSummary' in data) || (data.errorSummary is string && data.errorSummary.size() <= 300));
+    }
+
+
+
+    function validPeriod(period) {
+      return period is map
+        && period.keys().hasOnly(['tokens', 'estimatedCostUsd'])
+        && period.keys().hasAll(['tokens'])
+        && period.tokens is number
+        && period.tokens >= 0
+        && (!('estimatedCostUsd' in period) || (period.estimatedCostUsd is number && period.estimatedCostUsd >= 0));
+    }
+
+    function validDailyUsage(entry) {
+      return entry is map
+        && entry.keys().hasOnly(['date', 'tokens', 'estimatedCostUsd', 'finalized'])
+        && entry.keys().hasAll(['date', 'tokens', 'finalized'])
+        && entry.date is string && entry.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && entry.tokens is number && entry.tokens >= 0
+        && entry.finalized is bool
+        && (!('estimatedCostUsd' in entry) || (entry.estimatedCostUsd is number && entry.estimatedCostUsd >= 0));
+    }
+    function validDailyChunk(daily) {
+      return daily is list && daily.size() <= 5
+        && (daily.size() < 1 || validDailyUsage(daily[0]))
+        && (daily.size() < 2 || validDailyUsage(daily[1]))
+        && (daily.size() < 3 || validDailyUsage(daily[2]))
+        && (daily.size() < 4 || validDailyUsage(daily[3]))
+        && (daily.size() < 5 || validDailyUsage(daily[4]));
+    }
+    function validHistory(uid, deviceId, providerId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'currency', 'periods', 'daily', 'storageVersion', 'chunkCount', 'dayCount'])
+        && data.keys().hasAll(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'currency', 'periods', 'daily'])
+        && data.schemaVersion == 1 && data.userId == uid && data.deviceId == deviceId && data.providerId == providerId
+        && data.syncedAt is string && data.currency == 'USD'
+        && data.periods is map && data.periods.keys().hasOnly(['today', 'yesterday', 'last30Days'])
+        && (!('today' in data.periods) || validPeriod(data.periods.today))
+        && (!('yesterday' in data.periods) || validPeriod(data.periods.yesterday))
+        && (!('last30Days' in data.periods) || validPeriod(data.periods.last30Days))
+        && ((!( 'storageVersion' in data) && !('chunkCount' in data) && !('dayCount' in data) && validDailyChunk(data.daily))
+          || (data.storageVersion == 2 && data.daily == []
+            && data.dayCount is int && data.dayCount >= 0 && data.dayCount <= 35
+            && data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 7
+            && data.dayCount <= data.chunkCount * 5
+            && ((data.dayCount == 0 && data.chunkCount == 0) || data.dayCount > (data.chunkCount - 1) * 5)));
+    }
+    function validHistoryChunk(uid, deviceId, providerId, chunkId) {
+      let data = request.resource.data;
+      return chunkId.matches('^[0-6]$')
+        && data.keys().hasOnly(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'chunkId', 'daily'])
+        && data.keys().hasAll(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'chunkId', 'daily'])
+        && data.schemaVersion == 1 && data.userId == uid && data.deviceId == deviceId && data.providerId == providerId
+        && data.chunkId == chunkId && data.syncedAt is string
+        && validDailyChunk(data.daily) && data.daily.size() > 0;
+    }
+
+    function validHealth(uid, deviceId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'schemaVersion', 'userId', 'deviceId', 'updatedAt', 'engine', 'background', 'sync',
+          'providerReadyCount', 'providerWarningCount', 'agentVersion'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'userId', 'deviceId', 'updatedAt', 'engine', 'background', 'sync',
+          'providerReadyCount', 'providerWarningCount'
+        ])
+        && data.schemaVersion == 1
+        && data.userId == uid
+        && data.deviceId == deviceId
+        && data.updatedAt is string
+        && data.engine in ['ready', 'warning', 'missing', 'error']
+        && data.background in ['ready', 'warning', 'missing', 'error']
+        && data.sync in ['ready', 'warning', 'missing', 'error']
+        && data.providerReadyCount is int && data.providerReadyCount >= 0 && data.providerReadyCount <= 64
+        && data.providerWarningCount is int && data.providerWarningCount >= 0 && data.providerWarningCount <= 64
+        && (!('agentVersion' in data) || (data.agentVersion is string && data.agentVersion.size() <= 120));
+    }
+
+    match /{path=**}/providers/{providerId} {
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    match /{path=**}/history/{providerId} {
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+
+
+    match /{path=**}/historyChunks/{chunkId} {
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    match /users/{uid}/devices/{deviceId}/history/{providerId}/historyChunks/{chunkId} {
+      allow get, list: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validHistoryChunk(uid, deviceId, providerId, chunkId);
+      allow delete: if signedInAs(uid) && chunkId.matches('^[0-6]$');
+    }
+
+    match /users/{uid}/devices/{deviceId}/history/{providerId} {
+      allow get, list: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validHistory(uid, deviceId, providerId);
+      allow delete: if false;
+    }
+
+
+    match /{path=**}/health/{healthId} {
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    match /users/{uid}/devices/{deviceId}/health/{healthId} {
+      allow get: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && healthId == 'current' && validHealth(uid, deviceId);
+      allow delete: if false;
+    }
+
+    match /users/{uid}/devices/{deviceId}/providers/{providerId} {
+      allow get: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validSnapshot(uid, deviceId, providerId);
+      allow delete: if false;
+    }
+  }
+}

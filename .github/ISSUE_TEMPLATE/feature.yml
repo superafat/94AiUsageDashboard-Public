@@ -1,0 +1,17 @@
+name: Feature request
+description: 提議新功能或產品改善
+title: "[Feature] "
+body:
+  - type: textarea
+    attributes:
+      label: 使用情境
+      description: 這個功能要解決什麼問題？
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 隱私與安全影響
+      description: 是否會增加 Provider credential、雲端資料、帳號或不可逆操作？
+  - type: textarea
+    attributes:
+      label: 建議體驗

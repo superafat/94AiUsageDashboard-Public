@@ -1,0 +1,20 @@
+{
+  "schema": "openusage.limits.v1",
+  "providers": {
+    "claude@personal": {
+      "displayName": "Claude",
+      "plan": "Max",
+      "fetchedAt": "2026-09-05T10:00:00.000Z",
+      "expiresAt": "2026-09-05T10:05:00.000Z",
+      "stale": false,
+      "resources": {
+        "session": {"kind":"consumption","unit":"percent","used":37,"limit":100,"remaining":63,"resetsAt":"2026-09-05T14:30:00.000Z"},
+        "weekly": {"kind":"consumption","unit":"percent","used":58,"limit":100,"remaining":42,"resetsAt":"2026-09-10T00:00:00.000Z"},
+        "fable": {"kind":"consumption","unit":"percent","used":20,"limit":100,"remaining":80,"resetsAt":"2026-09-10T00:00:00.000Z"},
+        "sonnet": {"kind":"consumption","unit":"percent","used":15,"limit":100,"remaining":85,"resetsAt":"2026-09-10T00:00:00.000Z"},
+        "extraUsage": {"kind":"balance","unit":"usd","available":31.84}
+      }
+    }
+  },
+  "errors": []
+}

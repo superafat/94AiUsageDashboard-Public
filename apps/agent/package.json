@@ -1,0 +1,17 @@
+{
+  "name": "@94ai/agent",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "cli": "node --env-file-if-exists=../../.env.local --import tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@94ai/core": "*",
+    "@94ai/firebase": "*",
+    "@94ai/openusage": "*"
+  }
+}

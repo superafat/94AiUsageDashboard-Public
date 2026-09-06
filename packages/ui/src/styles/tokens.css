@@ -1,0 +1,24 @@
+:root {
+  --bg: #fffaf3;
+  --bg-deep: #f6ecdf;
+  --surface: #ffffff;
+  --surface-soft: #fbf4ea;
+  --text: #2d211c;
+  --muted: #77685f;
+  --primary: #b8762e;
+  --primary-soft: #f7ead7;
+  --success: #31593a;
+  --success-soft: #e8f0e7;
+  --danger: #9f3f4d;
+  --danger-soft: #fae9eb;
+  --line: #e6d9cc;
+  --shadow-sm: 0 4px 14px rgba(76, 55, 42, .05);
+  --shadow-md: 0 12px 32px rgba(76, 55, 42, .09);
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --content-max: 1120px;
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}

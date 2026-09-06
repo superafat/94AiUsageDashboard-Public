@@ -1,0 +1,16 @@
+{
+  "schema": "openusage.limits.v1",
+  "generatedAt": "2026-09-05T10:00:10.000Z",
+  "providers": {
+    "codex": {
+      "displayName": "Codex",
+      "fetchedAt": "2026-09-05T10:00:00.000Z",
+      "expiresAt": "2026-09-05T10:05:00.000Z",
+      "stale": false,
+      "resources": {
+        "weekly": { "kind": "consumption", "unit": "percent", "used": 20, "limit": 100, "remaining": 80 }
+      }
+    }
+  },
+  "errors": []
+}

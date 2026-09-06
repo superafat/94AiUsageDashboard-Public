@@ -1,0 +1,24 @@
+name: Bug report
+description: 回報可重現的問題，請勿附上任何秘密
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: 隱私確認
+      options:
+        - label: 我確認內容沒有 token、auth/login 檔、Cookie、.env.local、Keychain 值或私人完整 log
+          required: true
+  - type: textarea
+    attributes:
+      label: 重現步驟
+      description: 請描述從哪個畫面開始、做了什麼、預期與實際結果
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 安全診斷
+      description: 可貼上 `npm run usage -- doctor --json` 的已清理輸出；不要貼 Provider credential
+  - type: input
+    attributes:
+      label: macOS / App / Browser 版本

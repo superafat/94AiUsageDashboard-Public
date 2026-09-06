@@ -1,0 +1,16 @@
+{
+  "schema": "openusage.limits.v1",
+  "generatedAt": "2026-09-05T10:10:00.000Z",
+  "providers": {
+    "codex": {
+      "displayName": "Codex",
+      "fetchedAt": "2026-09-05T10:00:00.000Z",
+      "expiresAt": "2026-09-05T10:05:00.000Z",
+      "stale": true,
+      "resources": {
+        "session": { "kind": "consumption", "unit": "percent", "remaining": 40 }
+      }
+    }
+  },
+  "errors": [{ "providerId": "codex", "message": "refresh failed" }]
+}
