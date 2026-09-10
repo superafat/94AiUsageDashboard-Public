@@ -54,6 +54,11 @@ OpenUsage 是獨立第三方軟體，不等於我們的 Firebase 同步。依上
    - **保留語意 (Retention)**：每次健康檢查或同步時覆寫更新為最新快照；Rules 設為 `delete: if false`。
 5. **Reset Credit 與指令 Metadata (Reset-command Metadata)**
    - **現況與保留語意**：在目前 v0.1.2 中，Rate-limit Reset Credits 僅作為唯讀展示，本專案**未啟用**任何破壞性遠端消耗指令通道，亦無運作中的指令集合。若未來啟用指令 metadata，亦將限定於擁有者自身裝置路徑（如 `/users/{uid}/devices/{deviceId}/commands/{commandId}`），僅存放短暫 TTL 之隨機指令識別碼、過期時間與冪等狀態，逾期或執行後自動清除，絕不存放任何 Provider 憑證。
+6. **Provider 顯示與同步偏好設定 (Provider Preferences)**
+   - **集合路徑**：`/users/{uid}/preferences/{family}`（`family` 為 11 種支援的 Provider 家族識別碼，如 `codex`、`antigravity`、`claude`、`copilot`、`cursor`、`devin`、`grok`、`ollama`、`opencode`、`openrouter`、`zai`）。
+   - **儲存內容**：各 Provider 家族之啟用/停用狀態（`family`、`enabled: boolean`、`updatedAt`、`version: 1`）。
+   - **保留語意 (Retention)**：由使用者在 Settings 畫面即時切換更新。Firestore Rules 限制僅允許擁有者讀寫，並設為 `delete: if false`。
+   - **App-specific 邊界與 OpenUsage 隔離**：在 94AiUsageDashboard 設定中將特定 Provider 設為關閉 (OFF)，**純粹為本 App 之資料來源過濾與隱私控制**。此操作只會停止該 Provider 在儀表板／統計歷史／明細之展示與雲端同步發布，**絕不會**登出或刪除該 Provider 帳號、**絕不會**刪除既有歷史記錄、亦**絕不會**修改 OpenUsage 自身的全域組態或刪除本機憑證。
 
 ## 生命週期與解除安裝邊界
 

@@ -1,9 +1,9 @@
-import { collectionGroup, doc, onSnapshot, query, setDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
-import { parseUsageHistorySnapshot, parseUsageSnapshot, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
-import { historyDocPath, historyChunkPath, usageDocPath } from './paths';
+import { collection, collectionGroup, doc, onSnapshot, query, setDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
+import { KNOWN_PROVIDER_FAMILIES, parseProviderPreference, parseUsageHistorySnapshot, parseUsageSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { historyDocPath, historyChunkPath, preferenceDocPath, usageDocPath } from './paths';
 import { assembleUsageHistory, parseHistoryChunk, parseHistorySummary, splitHistoryForStorage, HISTORY_MAX_CHUNKS, type UsageHistoryChunk } from './history-storage';
 
-export { historyDocPath, usageDocPath } from './paths';
+export { historyDocPath, preferenceDocPath, usageDocPath } from './paths';
 
 export async function writeUsageSnapshot(db: Firestore, uid: string, snapshot: UsageSnapshot): Promise<void> {
   const parsed = parseUsageSnapshot(snapshot);
@@ -81,4 +81,65 @@ export function subscribeUsageHistory(
     emit();
   }, error => { if (!stopped) onError?.(error); });
   return () => { stopped = true; stopSummaries(); stopChunks(); lastGood.clear(); };
+}
+
+export async function writeProviderPreference(
+  db: Firestore,
+  uid: string,
+  preference: ProviderPreference,
+): Promise<void> {
+  const parsed = parseProviderPreference(preference);
+  if (parsed.userId !== uid) throw new Error('auth UID does not match preference UID');
+  await setDoc(doc(db, preferenceDocPath(uid, parsed.family)), parsed, { merge: true });
+}
+
+export function subscribeProviderPreferences(
+  db: Firestore,
+  uid: string,
+  onValue: (preferences: ProviderPreference[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  const preferencesRef = collection(db, 'users', uid, 'preferences');
+  let stopped = false;
+  const unsubscribe = onSnapshot(
+    preferencesRef,
+    { includeMetadataChanges: true },
+    (result) => {
+      if (stopped || result.metadata?.fromCache || result.metadata?.hasPendingWrites) return;
+      try {
+        const preferences: ProviderPreference[] = [];
+        const seenFamilies = new Set<string>();
+        if (result.size > KNOWN_PROVIDER_FAMILIES.length) {
+          throw new Error('preferences collection exceeds known families bound');
+        }
+        for (const entry of result.docs) {
+          const raw = entry.data();
+          const parsed = parseProviderPreference(raw);
+          if (parsed.userId !== uid) {
+            throw new Error('auth UID does not match preference UID');
+          }
+          if (entry.id !== parsed.family) {
+            throw new Error('document ID does not match preference family');
+          }
+          if (seenFamilies.has(parsed.family)) {
+            throw new Error(`duplicate preference family: ${parsed.family}`);
+          }
+          seenFamilies.add(parsed.family);
+          preferences.push(parsed);
+        }
+        onValue(preferences);
+      } catch (err) {
+        if (stopped) return;
+        onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    (error) => {
+      if (stopped) return;
+      onError?.(error);
+    },
+  );
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
 }

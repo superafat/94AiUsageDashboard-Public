@@ -1,6 +1,25 @@
-import type { UsageSnapshot } from '@94ai/core';
+import {
+  isKnownProviderFamily,
+  providerFamilyOf,
+  type KnownProviderFamily,
+  type UsageSnapshot,
+} from '@94ai/core';
 
-export type ProviderFamily = 'codex' | 'antigravity' | 'claude' | 'other';
+export type ProviderFamily = KnownProviderFamily | 'other';
+
+export const FAMILY_DISPLAY_NAMES: Record<KnownProviderFamily, string> = {
+  codex: 'Codex',
+  antigravity: 'Antigravity',
+  claude: 'Claude Code',
+  copilot: 'Copilot',
+  cursor: 'Cursor',
+  devin: 'Devin',
+  grok: 'Grok',
+  ollama: 'Ollama (Cloud)',
+  opencode: 'OpenCode',
+  openrouter: 'OpenRouter',
+  zai: 'Zai',
+};
 
 const LABELS: Record<string, Record<string, string>> = {
   codex: {
@@ -23,18 +42,14 @@ const ORDER: Record<string, string[]> = {
 };
 
 export function providerFamily(providerId: string): ProviderFamily {
-  const id = providerId.toLowerCase();
-  if (id === 'codex' || id.startsWith('codex@')) return 'codex';
-  if (id === 'antigravity' || id.startsWith('antigravity@')) return 'antigravity';
-  if (id === 'claude' || id.startsWith('claude@')) return 'claude';
+  const base = providerFamilyOf(providerId);
+  if (isKnownProviderFamily(base)) return base;
   return 'other';
 }
 
 export function providerName(snapshot: UsageSnapshot): string {
   const family = providerFamily(snapshot.providerId);
-  if (family === 'codex') return 'Codex';
-  if (family === 'antigravity') return 'Antigravity';
-  if (family === 'claude') return 'Claude Code';
+  if (family !== 'other') return FAMILY_DISPLAY_NAMES[family];
   return snapshot.providerId;
 }
 

@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { loadAgentAuthConfig, loginWithGoogle } from './auth';
 import { MacOSKeychainCredentialStore } from './credential-store';
-import { formatSafeError, runSync } from './sync';
+import { formatSafeError, formatSyncStatus, runSync } from './sync';
 import { formatDoctorHuman, formatDoctorJson, runDoctor } from './doctor';
 import { runSetupStep, runSetupWorkflow } from './setup-actions';
 import { installBackgroundSync, uninstallBackgroundSync } from './background';
@@ -29,7 +29,8 @@ async function main(): Promise<void> {
   if (command === 'sync') {
     const config = loadAgentAuthConfig(process.env);
     const result = await runSync(config, store);
-    console.log(`同步完成：${result.providerCount} 個額度來源，${result.historyProviderCount} 個歷史來源，${result.syncedAt}`);
+    console.log(formatSyncStatus(result));
+    if (result.preferenceErrorCode) process.exitCode = 1;
     return;
   }
   if (command === 'install') {
@@ -54,7 +55,10 @@ async function main(): Promise<void> {
         login: () => loginWithGoogle(getConfig(), store),
         installBackground: () => installBackgroundSync({ agentDir, rootDir }),
       }),
-      sync: async () => { await runSync(getConfig(), store); },
+      sync: async () => {
+        const synced = await runSync(getConfig(), store);
+        if (synced.preferenceErrorCode) throw new Error(formatSyncStatus(synced));
+      },
     });
     if (result.state === 'manual') {
       const instruction = result.instructionCode === 'install_official_openusage'

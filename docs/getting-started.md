@@ -24,6 +24,10 @@
 
 Provider token／credential、Cookie、Prompt、Response、原始 session、程式碼、Keychain 值與完整本機路徑都不會同步到 Firestore／Web。
 
+## 資料來源顯示與同步設定
+
+你可以在 App「設定」頁面中個別啟用或停用 11 種 AI 工具來源。停用僅會在此 App 中隱藏並停止同步該工具，絕不會登出工具、刪除歷史記錄或變更 OpenUsage 自身設定。
+
 ## 未來 App
 
 未來 App 的主要分享方式是 Google Play 與 App Store：Android／iPhone 使用者下載 App → 登入 → 配對自己的 Mac → 直接使用；一般使用者不需要 clone GitHub、安裝 Node 或建立自己的 Firebase。Self-hosted 仍保留給進階使用者。
@@ -31,4 +35,3 @@ Provider token／credential、Cookie、Prompt、Response、原始 session、程�
 ## 需要協助
 
 先看 `docs/install-macos.md` 與 `docs/troubleshooting.md`。若由 AI 程式碼助理執行安裝，請遵照規範合約 [`AI_INSTALL.md`](../AI_INSTALL.md)。解除安裝與生命週期清理指引請參閱 [`docs/uninstall.md`](uninstall.md)。回報問題前請執行 `npm run usage -- doctor --json`，但不要附上 `.env.local`、Keychain 值或 Provider 登入檔。
-

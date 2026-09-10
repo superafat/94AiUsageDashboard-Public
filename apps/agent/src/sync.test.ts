@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatSafeError, runSyncWithDependencies, serializeSafeSnapshot } from './sync';
+import { formatSafeError, formatSyncStatus, runSyncWithDependencies, serializeSafeSnapshot } from './sync';
 
 const snapshot = {
   schemaVersion: 1,
@@ -316,4 +316,184 @@ describe('agent privacy boundary', () => {
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(300);
   });
+
+  it('reads authenticated preferences before publishing and filters disabled families', async () => {
+    const writtenSnapshots: string[] = [];
+    const writtenHistory: string[] = [];
+
+    const result = await runSyncWithDependencies({
+      now: () => new Date('2026-09-05T10:00:05.000Z'),
+      getDeviceId: async () => 'device-1',
+      getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+      fetchPreferences: async () => [
+        { schemaVersion: 1, userId: 'alice', family: 'codex', enabled: false, updatedAt: '2026-09-10T10:00:00Z' },
+        { schemaVersion: 1, userId: 'alice', family: 'claude', enabled: true, updatedAt: '2026-09-10T10:00:00Z' },
+      ],
+      fetchLimits: async () => ({
+        schema: 'openusage.limits.v1',
+        providers: {
+          codex: {
+            fetchedAt: '2026-09-05T10:00:00.000Z',
+            expiresAt: '2026-09-05T10:05:00.000Z',
+            stale: false,
+            resources: { session: { kind: 'consumption', unit: 'percent', remaining: 51 } },
+          },
+          claude: {
+            fetchedAt: '2026-09-05T10:00:00.000Z',
+            expiresAt: '2026-09-05T10:05:00.000Z',
+            stale: false,
+            resources: { session: { kind: 'consumption', unit: 'percent', remaining: 80 } },
+          },
+        },
+        errors: [],
+      }),
+      writeSnapshot: async (_auth, item) => { writtenSnapshots.push(item.providerId); },
+      fetchHistory: async () => [
+        { providerId: 'codex', periods: { today: { tokens: 100 } }, daily: [] },
+        { providerId: 'claude', periods: { today: { tokens: 200 } }, daily: [] },
+      ],
+      readHistory: async () => undefined,
+      writeHistory: async (_auth, item) => { writtenHistory.push(item.providerId); },
+    });
+
+    expect(result.providerCount).toBe(1);
+    expect(writtenSnapshots).toEqual(['claude']);
+    expect(writtenHistory).toEqual(['claude']);
+  });
+
+  it('keeps default-three behavior when preference collection is empty and added providers are disabled', async () => {
+    const writtenSnapshots: string[] = [];
+
+    const result = await runSyncWithDependencies({
+      now: () => new Date('2026-09-05T10:00:05.000Z'),
+      getDeviceId: async () => 'device-1',
+      getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+      fetchPreferences: async () => [],
+      fetchLimits: async () => ({
+        schema: 'openusage.limits.v1',
+        providers: {
+          codex: {
+            fetchedAt: '2026-09-05T10:00:00.000Z',
+            expiresAt: '2026-09-05T10:05:00.000Z',
+            stale: false,
+            resources: { session: { kind: 'consumption', unit: 'percent', remaining: 51 } },
+          },
+          cursor: {
+            fetchedAt: '2026-09-05T10:00:00.000Z',
+            expiresAt: '2026-09-05T10:05:00.000Z',
+            stale: false,
+            resources: { session: { kind: 'consumption', unit: 'percent', remaining: 90 } },
+          },
+        },
+        errors: [],
+      }),
+      writeSnapshot: async (_auth, item) => { writtenSnapshots.push(item.providerId); },
+    });
+
+    // Codex is in default-three (enabled), Cursor is added provider (default disabled)
+    expect(result.providerCount).toBe(1);
+    expect(writtenSnapshots).toEqual(['codex']);
+  });
+
+  it('suppresses publishing with diagnostic when preference read fails and no cache exists', async () => {
+    const writtenSnapshots: string[] = [];
+
+    const result = await runSyncWithDependencies({
+      now: () => new Date('2026-09-05T10:00:05.000Z'),
+      getDeviceId: async () => 'device-1',
+      getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+      fetchPreferences: async () => { throw new Error('Network error reading preferences'); },
+      fetchLimits: async () => ({
+        schema: 'openusage.limits.v1',
+        providers: {
+          codex: {
+            fetchedAt: '2026-09-05T10:00:00.000Z',
+            expiresAt: '2026-09-05T10:05:00.000Z',
+            stale: false,
+            resources: { session: { kind: 'consumption', unit: 'percent', remaining: 51 } },
+          },
+        },
+        errors: [],
+      }),
+      writeSnapshot: async (_auth, item) => { writtenSnapshots.push(item.providerId); },
+    });
+
+    // Must NOT silently publish potentially disabled providers
+    expect(writtenSnapshots).toEqual([]);
+    expect(result.providerCount).toBe(0);
+    expect(result.preferenceErrorCode).toBe('preferences_read_failed');
+  });
+
+  it('never calls fetchLimits or writeSnapshot when preference read fails', async () => {
+    let fetchLimitsCalled = false;
+    let writeSnapshotCalled = false;
+    let fetchHistoryCalled = false;
+
+    const result = await runSyncWithDependencies({
+      now: () => new Date('2026-09-05T10:00:05.000Z'),
+      getDeviceId: async () => 'device-1',
+      getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+      fetchPreferences: async () => { throw new Error('Firestore preferences unavailable'); },
+      fetchLimits: async () => {
+        fetchLimitsCalled = true;
+        return { schema: 'openusage.limits.v1', providers: {}, errors: [] };
+      },
+      writeSnapshot: async () => { writeSnapshotCalled = true; },
+      fetchHistory: async () => {
+        fetchHistoryCalled = true;
+        return [];
+      },
+      readHistory: async () => undefined,
+      writeHistory: async () => undefined,
+    });
+
+    expect(fetchLimitsCalled).toBe(false);
+    expect(writeSnapshotCalled).toBe(false);
+    expect(fetchHistoryCalled).toBe(false);
+    expect(result.providerCount).toBe(0);
+    expect(result.historyProviderCount).toBe(0);
+    expect(result.preferenceErrorCode).toBe('preferences_read_failed');
+  });
+
+  it('rejects preferences with mismatched UID and refuses to sync or publish', async () => {
+    let fetchLimitsCalled = false;
+    const writtenSnapshots: string[] = [];
+
+    const result = await runSyncWithDependencies({
+      now: () => new Date('2026-09-05T10:00:05.000Z'),
+      getDeviceId: async () => 'device-1',
+      getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+      fetchPreferences: async () => [
+        // Wrong UID: 'bob' instead of authenticated 'alice'
+        { schemaVersion: 1, userId: 'bob', family: 'codex', enabled: true, updatedAt: '2026-09-10T10:00:00.000Z' },
+      ],
+      fetchLimits: async () => {
+        fetchLimitsCalled = true;
+        return {
+          schema: 'openusage.limits.v1',
+          providers: {
+            codex: {
+              fetchedAt: '2026-09-05T10:00:00.000Z',
+              expiresAt: '2026-09-05T10:05:00.000Z',
+              stale: false,
+              resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
+            },
+          },
+          errors: [],
+        };
+      },
+      writeSnapshot: async (_auth, item) => { writtenSnapshots.push(item.providerId); },
+    });
+
+    expect(fetchLimitsCalled).toBe(false);
+    expect(writtenSnapshots).toEqual([]);
+    expect(result.providerCount).toBe(0);
+    expect(result.preferenceErrorCode).toBe('preferences_read_failed');
+  });
+});
+
+it('does not describe a preference-read failure as a completed sync', () => {
+  const message = formatSyncStatus({providerCount: 0, historyProviderCount: 0, syncedAt: '2026-09-10T00:00:00.000Z', preferenceErrorCode: 'preferences_read_failed', partialFailure: true});
+  expect(message).toContain('資料來源設定讀取失敗');
+  expect(message).not.toContain('同步完成');
 });

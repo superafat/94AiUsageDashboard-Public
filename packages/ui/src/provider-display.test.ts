@@ -46,4 +46,28 @@ describe('shared provider presentation', () => {
     snapshots.sort(providerSort);
     expect(snapshots.map((item) => item.providerId)).toEqual(['codex', 'antigravity', 'claude', 'other']);
   });
+
+  it('supports catalog display for all 11 verified OpenUsage families', () => {
+    const families = [
+      ['codex', 'Codex'],
+      ['antigravity', 'Antigravity'],
+      ['claude', 'Claude Code'],
+      ['copilot', 'Copilot'],
+      ['cursor', 'Cursor'],
+      ['devin', 'Devin'],
+      ['grok', 'Grok'],
+      ['ollama', 'Ollama (Cloud)'],
+      ['opencode', 'OpenCode'],
+      ['openrouter', 'OpenRouter'],
+      ['zai', 'Zai'],
+    ] as const;
+
+    for (const [family, label] of families) {
+      expect(providerFamily(family)).toBe(family);
+      expect(providerFamily(`${family}@custom-account`)).toBe(family);
+      expect(providerName({ ...base, providerId: family })).toBe(label);
+    }
+    expect(providerFamily('custom-unknown-provider')).toBe('other');
+    expect(providerName({ ...base, providerId: 'custom-unknown-provider' })).toBe('custom-unknown-provider');
+  });
 });

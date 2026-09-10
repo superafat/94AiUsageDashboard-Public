@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readUsageHistoryRest, writeUsageHistoryRest, writeUsageSnapshotRest } from './rest';
+import { readProviderPreferencesRest, readUsageHistoryRest, writeUsageHistoryRest, writeUsageSnapshotRest } from './rest';
 
 const snapshot = {
   schemaVersion: 1 as const, userId: 'alice', deviceId: 'device-1', providerId: 'codex',
@@ -114,4 +114,150 @@ describe('writeUsageSnapshotRest', () => {
     await expect(writePromise).rejects.toThrow();
     expect(observedSignal?.aborted).toBe(true);
   });
+
+  it('reads provider preferences via REST', async () => {
+    const pref = {
+      schemaVersion: 1 as const,
+      userId: 'alice',
+      family: 'cursor',
+      enabled: true,
+      updatedAt: '2026-09-10T10:00:00.000Z',
+    };
+
+    const fakeListFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'cursor' },
+            enabled: { booleanValue: true },
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+    const result = await readProviderPreferencesRest('demo', 'token-1', 'alice', fakeListFetch);
+    expect(result).toEqual([pref]);
+
+    const fakeNotFound = async () => new Response('{}', { status: 404 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', fakeNotFound)).rejects.toThrow(/404/);
+    const fakeEmpty = async () => new Response('{}', { status: 200 });
+    expect(await readProviderPreferencesRest('demo', 'token-1', 'alice', fakeEmpty)).toEqual([]);
+  });
+
+  it('rejects malformed disabled Codex preference rather than silently swallowing into empty success', async () => {
+    const malformedFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/codex',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'codex' },
+            enabled: { stringValue: 'false' }, // malformed: string instead of boolean
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', malformedFetch)).rejects.toThrow();
+  });
+
+  it('rejects wrong UID, mismatched resource path, and duplicate families in REST preferences', async () => {
+    // Wrong UID in document body
+    const wrongUidFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'bob' },
+            family: { stringValue: 'cursor' },
+            enabled: { booleanValue: true },
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', wrongUidFetch)).rejects.toThrow(/UID/i);
+
+    // Mismatched document resource path
+    const wrongPathFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/bob/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'cursor' },
+            enabled: { booleanValue: true },
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', wrongPathFetch)).rejects.toThrow();
+
+    // Mismatched family vs document ID
+    const mismatchedFamilyFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'codex' },
+            enabled: { booleanValue: true },
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', mismatchedFamilyFetch)).rejects.toThrow();
+
+    // Duplicate family
+    const duplicateFetch = async () => new Response(JSON.stringify({
+      documents: [
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'cursor' },
+            enabled: { booleanValue: true },
+            updatedAt: { stringValue: '2026-09-10T10:00:00.000Z' },
+          },
+        },
+        {
+          name: 'projects/demo/databases/(default)/documents/users/alice/preferences/cursor',
+          fields: {
+            schemaVersion: { integerValue: '1' },
+            userId: { stringValue: 'alice' },
+            family: { stringValue: 'cursor' },
+            enabled: { booleanValue: false },
+            updatedAt: { stringValue: '2026-09-10T10:00:01.000Z' },
+          },
+        },
+      ],
+    }), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', duplicateFetch)).rejects.toThrow(/duplicate/i);
+  });
+
+  it('rejects incomplete responses when nextPageToken is present', async () => {
+    const pagedFetch = async () => new Response(JSON.stringify({
+      documents: [],
+      nextPageToken: 'next-token-exceeds-bounds',
+    }), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'token-1', 'alice', pagedFetch)).rejects.toThrow(/bounds|incomplete/i);
+  });
+});
+
+it('rejects malformed preference payload shapes instead of enabling defaults', async () => {
+  for (const payload of [[], { error: 'unexpected' }, { documents: null }, { documents: [], nextPageToken: 5 }]) {
+    const fakeFetch = async () => new Response(JSON.stringify(payload), { status: 200 });
+    await expect(readProviderPreferencesRest('demo', 'synthetic-token', 'alice', fakeFetch)).rejects.toThrow();
+  }
 });

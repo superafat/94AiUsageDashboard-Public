@@ -8,8 +8,9 @@ import {
 } from '@94ai/core';
 import { useUsage, type UsageState } from './hooks/useUsage';
 import { useUsageHistory, type UsageHistoryState } from './hooks/useUsageHistory';
+import { useProviderPreferences, type ProviderPreferencesState } from './hooks/useProviderPreferences';
 import { AppShell } from './components/AppShell';
-import { providerSort } from './provider-display';
+import { providerFamily, providerSort } from './provider-display';
 import { screenForRoute } from './navigation';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { GettingStartedScreen } from './screens/GettingStartedScreen';
@@ -39,11 +40,12 @@ interface AuthenticatedRoutesProps {
   user: AppUser;
   usage: UsageState;
   history: UsageHistoryState;
+  preferences: ProviderPreferencesState;
   location: AppLocation;
   services: AppClientServices;
 }
 
-function AuthenticatedRoutes({ user, usage, history, location, services }: AuthenticatedRoutesProps) {
+function AuthenticatedRoutes({ user, usage, history, preferences, location, services }: AuthenticatedRoutesProps) {
   const [now, setNow] = useState(() => services.clock.now());
   const [offline, setOffline] = useState(() => services.connectivity.current() === 'offline');
   useEffect(() => services.connectivity.subscribe((state) => {
@@ -52,17 +54,30 @@ function AuthenticatedRoutes({ user, usage, history, location, services }: Authe
   }), [services]);
   useEffect(() => services.clock.every(30_000, () => setNow(services.clock.now())), [services]);
 
-  const items = visibleUsageItems(usage.items, now).sort(providerSort);
+  const allVisibleItems = visibleUsageItems(usage.items, now).sort(providerSort);
+  const items = allVisibleItems.filter((item) => preferences.isFamilyEnabled(providerFamily(item.providerId)));
+  const historyItems = history.items.filter((item) => preferences.isFamilyEnabled(providerFamily(item.providerId)));
+
   const screen = screenForRoute(location);
   const navigate = (target: AppLocation) => services.navigation.navigate(target);
   const shell = (children: ReactNode, hideTopbar = false) => <AppShell active={screen} userName={user.displayName ?? '帳號'} onNavigate={navigate} onSignOut={() => services.auth.signOut()} hideTopbar={hideTopbar}>{children}</AppShell>;
 
+  const needsPreferences = ['dashboard', 'usage', 'resets', 'provider'].includes(location.route);
+  if (needsPreferences && !preferences.hasObserved) {
+    return shell(<section className="state-card" role={preferences.status === 'error' ? 'alert' : 'status'}>
+      <strong>{preferences.status === 'error' ? '偏好設定讀取失敗' : '正在載入偏好設定…'}</strong>
+      <p>確認你的資料來源選擇後才會顯示額度與統計。</p>
+    </section>);
+  }
+
   if (location.route === 'dashboard') return shell(<DashboardScreen
-    userName={user.displayName ?? '帳號'} items={items} historyItems={history.items} now={new Date(now)} offline={offline}
-    loading={usage.status === 'loading'} readError={usage.status === 'error' ? usage.message : undefined}
+    userName={user.displayName ?? '帳號'} items={items} historyItems={historyItems} now={new Date(now)} offline={offline}
+    loading={usage.status === 'loading' || (preferences.status === 'loading' && !preferences.hasObserved)}
+    readError={usage.status === 'error' ? usage.message : (preferences.status === 'error' && !preferences.hasObserved ? '無法讀取偏好設定' : undefined)}
     hasStale={items.some((item) => isSnapshotStale(item, now))} onNavigate={navigate}
+    isFamilyEnabled={preferences.isFamilyEnabled}
   />, true);
-  if (location.route === 'usage') return shell(<UsageStatsScreen items={history.items} now={new Date(now)} />);
+  if (location.route === 'usage') return shell(<UsageStatsScreen items={historyItems} now={new Date(now)} />);
   if (location.route === 'resets') return shell(<ResetCreditsScreen items={items} now={new Date(now)} />);
   if (location.route === 'provider') {
     const snapshot = items.find((item) =>
@@ -72,7 +87,7 @@ function AuthenticatedRoutes({ user, usage, history, location, services }: Authe
       return shell(<section className="state-card"><strong>找不到這個資料來源</strong><p>回到首頁重新選擇 Provider。</p></section>);
     }
 
-    const historyItem = history.items.find((item) =>
+    const historyItem = historyItems.find((item) =>
       item.providerId === snapshot.providerId && item.deviceId === snapshot.deviceId
     );
     const historyError = history.status === 'error' ? history.message : undefined;
@@ -92,7 +107,19 @@ function AuthenticatedRoutes({ user, usage, history, location, services }: Authe
     );
   }
   if (location.route === 'help') return shell(<HelpScreen onNavigate={navigate} />);
-  if (location.route === 'settings') return shell(<SettingsScreen userName={user.displayName ?? '帳號'} backendProfile={services.backendProfile} onNavigate={navigate} onSignOut={() => services.auth.signOut()} />);
+  if (location.route === 'settings') return shell(<SettingsScreen
+    userName={user.displayName ?? '帳號'}
+    backendProfile={services.backendProfile}
+    onNavigate={navigate}
+    onSignOut={() => services.auth.signOut()}
+    observedFamilies={allVisibleItems.map((item) => providerFamily(item.providerId))}
+    status={preferences.status}
+    hasObserved={preferences.hasObserved}
+    isFamilyEnabled={preferences.isFamilyEnabled}
+    isFamilySaving={preferences.isFamilySaving}
+    familyError={preferences.familyError}
+    onToggleFamily={preferences.setFamilyEnabled}
+  />);
   return shell(<GettingStartedScreen signedIn onSignIn={() => services.auth.signIn()} onNavigate={navigate} />);
 }
 
@@ -103,6 +130,7 @@ export function AppRoot({ services }: { services: AppClientServices }) {
   useEffect(() => services.navigation.subscribe(() => setLocation(services.navigation.current())), [services]);
   const usage = useUsage(services, user?.uid ?? null);
   const history = useUsageHistory(services, user?.uid ?? null);
+  const preferences = useProviderPreferences(services, user?.uid ?? null);
   const navigate = (target: AppLocation) => services.navigation.navigate(target);
 
   if (user === undefined) return <main className="public-loading"><div className="state-card">正在確認登入狀態…</div></main>;
@@ -111,5 +139,5 @@ export function AppRoot({ services }: { services: AppClientServices }) {
     if (location.route === 'help') return <main className="public-screen"><HelpScreen onNavigate={navigate} /></main>;
     return <WelcomeScreen onNavigate={navigate} />;
   }
-  return <AuthenticatedRoutes user={user} usage={usage} history={history} location={location} services={services} />;
+  return <AuthenticatedRoutes user={user} usage={usage} history={history} preferences={preferences} location={location} services={services} />;
 }

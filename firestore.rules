@@ -108,6 +108,40 @@ service cloud.firestore {
         && (!('agentVersion' in data) || (data.agentVersion is string && data.agentVersion.size() <= 120));
     }
 
+    function validNotifications(notifications) {
+      return notifications is map
+        && notifications.keys().hasOnly(['lowQuota', 'reset'])
+        && (!('lowQuota' in notifications) || notifications.lowQuota is bool)
+        && (!('reset' in notifications) || notifications.reset is bool);
+    }
+
+    function validPreferenceTime(value) {
+      let parts = value.split('T')[0].split('-');
+      let year = int(parts[0]);
+      let month = int(parts[1]);
+      let day = int(parts[2]);
+      let date = timestamp.date(year, month, day);
+      return year >= 1
+        && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,3})?Z$')
+        && date.year() == year && date.month() == month && date.day() == day;
+    }
+
+    function validPreference(uid, family) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['schemaVersion', 'userId', 'family', 'enabled', 'updatedAt', 'notifications'])
+        && data.keys().hasAll(['schemaVersion', 'userId', 'family', 'enabled', 'updatedAt'])
+        && data.schemaVersion == 1
+        && data.userId == uid
+        && data.family == family
+        && data.enabled is bool
+        && data.updatedAt is string
+        && data.updatedAt.size() > 0
+        && data.updatedAt.size() <= 64
+        && validPreferenceTime(data.updatedAt)
+        && family in ['codex', 'antigravity', 'claude', 'copilot', 'cursor', 'devin', 'grok', 'ollama', 'opencode', 'openrouter', 'zai']
+        && (!('notifications' in data) || validNotifications(data.notifications));
+    }
+
     match /{path=**}/providers/{providerId} {
       allow list: if request.auth != null && resource.data.userId == request.auth.uid;
     }
@@ -147,6 +181,12 @@ service cloud.firestore {
     match /users/{uid}/devices/{deviceId}/providers/{providerId} {
       allow get: if signedInAs(uid);
       allow create, update: if signedInAs(uid) && validSnapshot(uid, deviceId, providerId);
+      allow delete: if false;
+    }
+
+    match /users/{uid}/preferences/{family} {
+      allow get, list: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validPreference(uid, family);
       allow delete: if false;
     }
   }
