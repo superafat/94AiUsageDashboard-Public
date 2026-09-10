@@ -7,7 +7,13 @@ import { MacOSKeychainCredentialStore, type CredentialStore } from './credential
 import { selectUsageEngine } from './engine-select';
 import { buildSetupReport, type SetupCheck, type SetupReport } from './setup-model';
 
-export interface LastSyncStatus { providerCount: number; syncedAt: string }
+export interface LastSyncStatus {
+  providerCount: number;
+  syncedAt: string;
+  partialFailure?: boolean | undefined;
+  providerErrorCode?: string | undefined;
+  failedProviders?: string[] | undefined;
+}
 export interface DoctorDependencies {
   platform: () => string;
   engineHealth: () => Promise<{ state: 'ready' | 'missing' | 'error'; detailCode: string }>;
@@ -28,7 +34,13 @@ async function readLastSync(): Promise<LastSyncStatus | undefined> {
   try {
     const value = JSON.parse(await readFile(lastSyncPath(), 'utf8')) as Record<string, unknown>;
     return typeof value.providerCount === 'number' && typeof value.syncedAt === 'string'
-      ? { providerCount: value.providerCount, syncedAt: value.syncedAt }
+      ? {
+          providerCount: value.providerCount,
+          syncedAt: value.syncedAt,
+          ...(value.partialFailure === true ? { partialFailure: true } : {}),
+          ...(typeof value.providerErrorCode === 'string' ? { providerErrorCode: value.providerErrorCode } : {}),
+          ...(Array.isArray(value.failedProviders) ? { failedProviders: value.failedProviders as string[] } : {}),
+        }
       : undefined;
   } catch { return undefined; }
 }
@@ -59,10 +71,19 @@ export async function runDoctorWithDependencies(deps: DoctorDependencies): Promi
   const last = await deps.lastSync();
   let sync = check('warning', 'sync_never', '尚未完成第一次同步');
   if (last && Number.isFinite(Date.parse(last.syncedAt))) {
-    const age = now.getTime() - Date.parse(last.syncedAt);
-    sync = age <= 12 * 60 * 1000
-      ? check('ready', 'sync_ready', `最近同步正常（${last.providerCount} 個來源）`)
-      : check('warning', 'sync_stale', `最近同步較舊（${last.providerCount} 個來源）`);
+    const syncTime = Date.parse(last.syncedAt);
+    const age = now.getTime() - syncTime;
+    if (syncTime > now.getTime()) {
+      sync = check('warning', 'sync_future_inconsistent', `最近同步時間異常（來自未來時間：${last.syncedAt}）`);
+    } else if (last.providerCount <= 0) {
+      sync = check('warning', 'sync_zero_providers', '最近同步未包含任何來源（0 個來源）', 'refresh_provider_login');
+    } else if (last.partialFailure || (last.failedProviders && last.failedProviders.length > 0)) {
+      sync = check('warning', 'sync_partial', `最近同步部分失敗（成功 ${last.providerCount} 個來源）`);
+    } else if (age <= 12 * 60 * 1000) {
+      sync = check('ready', 'sync_ready', `最近同步正常（${last.providerCount} 個來源）`);
+    } else {
+      sync = check('warning', 'sync_stale', `最近同步較舊（${last.providerCount} 個來源）`);
+    }
   }
   return buildSetupReport({ platform, engine, backendConfig, auth, background, sync });
 }

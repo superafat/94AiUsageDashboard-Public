@@ -20,4 +20,16 @@ describe('browser navigation adapter', () => {
     navigation.navigate({ route: 'provider', providerId: 'codex' });
     expect(navigation.current()).toEqual({ route: 'provider', providerId: 'codex' });
   });
+
+  it('round-trips provider navigation with safely encoded deviceId across reload and bookmark', () => {
+    const navigation = createBrowserNavigation();
+    navigation.navigate({ route: 'provider', providerId: 'codex', deviceId: 'mac-mini/m4 work' });
+    expect(window.location.hash).toBe('#/provider?providerId=codex&deviceId=mac-mini%2Fm4+work');
+    expect(navigation.current()).toEqual({ route: 'provider', providerId: 'codex', deviceId: 'mac-mini/m4 work' });
+
+
+    // Bookmark direct navigation
+    window.location.hash = '#/provider?providerId=codex&deviceId=mac-studio%20m2';
+    expect(navigation.current()).toEqual({ route: 'provider', providerId: 'codex', deviceId: 'mac-studio m2' });
+  });
 });

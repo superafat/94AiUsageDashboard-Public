@@ -131,7 +131,7 @@ describe('App', () => {
     expect(screen.queryByText('每週額度')).not.toBeInTheDocument();
   });
 
-  it('does not confuse the OpenUsage cache expiry with a dead Mac sync', () => {
+  it('marks data stale when snapshot expiresAt has passed', () => {
     const fake = fakeServices();
     render(<AppRoot services={fake.services} />);
     fake.auth({ uid: 'alice' });
@@ -140,9 +140,9 @@ describe('App', () => {
       stale: false,
       syncedAt: new Date().toISOString(),
       fetchedAt: new Date(Date.now() - 330_000).toISOString(),
-      expiresAt: new Date(Date.now() - 30_000).toISOString(),
+      expiresAt: new Date(Date.now() - 30_000).toISOString(), // Expired 30s ago!
     }]);
-    expect(screen.queryByText(/資料可能已過期/)).not.toBeInTheDocument();
+    expect(screen.getByText(/資料可能已過期/)).toBeInTheDocument();
   });
 
   it('marks data stale when the Mac has not completed a sync within the heartbeat window', () => {
@@ -237,7 +237,7 @@ describe('App', () => {
     const fake = fakeServices();
     render(<AppRoot services={fake.services} />);
     fake.auth({ uid: 'alice' });
-    const now = Date.now();
+    const now = Date.parse('2026-09-05T10:00:10.000Z');
     fake.usage([{ ...base, fetchedAt: new Date(now).toISOString(), syncedAt: new Date(now).toISOString(), expiresAt: new Date(now + 300_000).toISOString() }]);
     fake.connectivity('offline');
     expect(screen.getByRole('alert')).toHaveTextContent('目前離線');
@@ -272,11 +272,11 @@ describe('App', () => {
     expect(screen.queryByText(/請確認 Mac 上的 OpenUsage 與同步程式是否正常/)).not.toBeInTheDocument();
   });
 
-  it('hides an obsolete stale provider snapshot when the same device has a fresh replacement', () => {
+  it('does not hide a distinct provider account merely because another same-family provider is fresh', () => {
     const fake = fakeServices();
     render(<AppRoot services={fake.services} />);
     fake.auth({ uid: 'alice' });
-    const now = Date.now();
+    const now = Date.parse('2026-09-05T10:00:10.000Z');
     const fresh = {
       ...base,
       providerId: 'claude',
@@ -285,22 +285,54 @@ describe('App', () => {
       syncedAt: new Date(now).toISOString(),
       expiresAt: new Date(now + 300_000).toISOString(),
       stale: false,
-      resources: {},
+      resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
     } satisfies UsageSnapshot;
-    const obsolete = {
+    const staleDistinctAccount = {
       ...fresh,
       providerId: 'claude@personal',
+      plan: 'Personal',
+      fetchedAt: new Date(now - 3_600_000).toISOString(),
+      syncedAt: new Date(now - 3_600_000).toISOString(),
+      expiresAt: new Date(now - 3_300_000).toISOString(),
+      stale: true,
+      errorSummary: 'not logged in',
+    } satisfies UsageSnapshot;
+    fake.usage([staleDistinctAccount, fresh]);
+    // Both distinct provider accounts must be kept visible!
+    expect(screen.getAllByRole('heading', { name: 'Claude Code' })).toHaveLength(2);
+    expect(screen.getByText('Current')).toBeInTheDocument();
+    expect(screen.getByText('Personal')).toBeInTheDocument();
+  });
+
+  it('hides an obsolete stale provider duplicate when the same account on the same device has a fresh replacement', () => {
+    const fake = fakeServices();
+    render(<AppRoot services={fake.services} />);
+    fake.auth({ uid: 'alice' });
+    const now = Date.parse('2026-09-05T10:00:10.000Z');
+    const fresh = {
+      ...base,
+      providerId: 'claude',
+      plan: 'Current',
+      fetchedAt: new Date(now).toISOString(),
+      syncedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 300_000).toISOString(),
+      stale: false,
+      resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
+    } satisfies UsageSnapshot;
+    const obsoleteDuplicate = {
+      ...fresh,
+      providerId: 'claude', // Exact same providerId and deviceId
       plan: 'Old',
       fetchedAt: new Date(now - 3_600_000).toISOString(),
       syncedAt: new Date(now - 3_600_000).toISOString(),
       expiresAt: new Date(now - 3_300_000).toISOString(),
       stale: true,
-      errorSummary: 'old login error',
+      errorSummary: 'not logged in',
     } satisfies UsageSnapshot;
-    fake.usage([obsolete, fresh]);
+    fake.usage([obsoleteDuplicate, fresh]);
     expect(screen.getAllByRole('heading', { name: 'Claude Code' })).toHaveLength(1);
-    expect(screen.queryByText('old login error')).not.toBeInTheDocument();
     expect(screen.getByText('Current')).toBeInTheDocument();
+    expect(screen.queryByText('Old')).not.toBeInTheDocument();
   });
 
   it('keeps multiple fresh account-scoped snapshots for the same provider family', () => {
@@ -344,4 +376,54 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: 'Claude Code 尚未連接' })).toBeInTheDocument();
   });
 
+  it('routes to device-specific provider detail and surfaces history error state', () => {
+    const fake = fakeServices();
+    render(<AppRoot services={fake.services} />);
+    fake.auth({ uid: 'alice' });
+
+    const deviceAlpha: UsageSnapshot = {
+      ...base,
+      deviceId: 'device-alpha',
+      plan: 'Alpha Plan',
+    };
+    const deviceBeta: UsageSnapshot = {
+      ...base,
+      deviceId: 'device-beta',
+      plan: 'Beta Plan',
+    };
+    fake.usage([deviceAlpha, deviceBeta]);
+
+    // Navigate to device-beta specifically without cast
+    fake.navigate({ route: 'provider', providerId: 'codex', deviceId: 'device-beta' });
+
+    expect(screen.getByText('Beta Plan')).toBeInTheDocument();
+    expect(screen.getByText('device-beta')).toBeInTheDocument();
+    expect(screen.queryByText('Alpha Plan')).not.toBeInTheDocument();
+  });
+
+  it('opens the second device same-provider card directly to that device detail', () => {
+    const fake = fakeServices();
+    render(<AppRoot services={fake.services} />);
+    fake.auth({ uid: 'alice' });
+
+    const deviceAlpha: UsageSnapshot = {
+      ...base,
+      deviceId: 'device-alpha',
+      plan: 'Alpha Plan',
+    };
+    const deviceBeta: UsageSnapshot = {
+      ...base,
+      deviceId: 'device-beta',
+      plan: 'Beta Plan',
+    };
+    fake.usage([deviceAlpha, deviceBeta]);
+
+    const openButtons = screen.getAllByRole('button', { name: '查看 Codex 詳情' });
+    expect(openButtons).toHaveLength(2);
+    fireEvent.click(openButtons[1]!);
+
+    expect(screen.getByText('Beta Plan')).toBeInTheDocument();
+    expect(screen.getByText('device-beta')).toBeInTheDocument();
+    expect(screen.queryByText('Alpha Plan')).not.toBeInTheDocument();
+  });
 });

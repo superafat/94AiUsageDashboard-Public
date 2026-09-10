@@ -51,7 +51,18 @@ describe('DashboardScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看使用統計' }));
     fireEvent.click(screen.getByRole('button', { name: '查看重置額度' }));
     fireEvent.click(screen.getByRole('button', { name: '查看 Codex 詳情' }));
-    expect(navigate.mock.calls.map(([location]) => location)).toEqual([{ route: 'usage' }, { route: 'resets' }, { route: 'provider', providerId: 'codex' }]);
+    expect(navigate.mock.calls.map(([location]) => location)).toEqual([{ route: 'usage' }, { route: 'resets' }, { route: 'provider', providerId: 'codex', deviceId: 'device-1' }]);
     expect(screen.queryByRole('button', { name: /^(使用|兌換|確認重置)$/ })).not.toBeInTheDocument();
+  });
+
+  it('carries exact deviceId when opening provider cards across multiple devices', () => {
+    const navigate = vi.fn<(location: AppLocation) => void>();
+    const codex1 = { ...codex, deviceId: 'device-alpha' };
+    const codex2 = { ...codex, deviceId: 'device-beta' };
+    render(<DashboardScreen userName="Alice" items={[codex1, codex2]} historyItems={[history()]} now={new Date('2026-09-06T09:01:00.000Z')} offline={false} onNavigate={navigate} />);
+    const openButtons = screen.getAllByRole('button', { name: '查看 Codex 詳情' });
+    expect(openButtons).toHaveLength(2);
+    fireEvent.click(openButtons[1]!);
+    expect(navigate).toHaveBeenCalledWith({ route: 'provider', providerId: 'codex', deviceId: 'device-beta' });
   });
 });

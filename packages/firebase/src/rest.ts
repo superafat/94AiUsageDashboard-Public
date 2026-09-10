@@ -55,31 +55,72 @@ function restDocumentUrl(projectId: string, documentPath: string): string {
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encoded}`;
 }
 
+export function composeSignal(signal?: AbortSignal, timeoutMs = 15_000): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      controller.abort(new Error(`Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+    } else {
+      const onAbort = () => controller.abort(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      return {
+        signal: controller.signal,
+        cleanup: () => {
+          if (timer) clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+        },
+      };
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timer) clearTimeout(timer);
+    },
+  };
+}
+
 export async function writeUsageSnapshotRest(
   projectId: string,
   idToken: string,
   snapshot: UsageSnapshot,
   fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
 ): Promise<void> {
   const parsed = parseUsageSnapshot(snapshot);
   const url = restDocumentUrl(projectId, usageDocPath(parsed.userId, parsed.deviceId, parsed.providerId));
-  const response = await fetchImpl(url, {
-    method: 'PATCH',
-    headers: {
-      authorization: `Bearer ${idToken}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ fields: encodeMap(parsed as unknown as Record<string, unknown>) }),
-  });
-  if (!response.ok) throw new Error(`Firestore write failed (${response.status})`);
+  const { signal: effectiveSignal, cleanup } = composeSignal(signal, 15_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'PATCH',
+      signal: effectiveSignal,
+      headers: {
+        authorization: `Bearer ${idToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ fields: encodeMap(parsed as unknown as Record<string, unknown>) }),
+    });
+    if (!response.ok) throw new Error(`Firestore write failed (${response.status})`);
+  } finally {
+    cleanup();
+  }
 }
-
 
 export async function writeUsageHistoryRest(
   projectId: string,
   idToken: string,
   snapshot: UsageHistorySnapshot,
   fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { summary, chunks } = splitHistoryForStorage(snapshot);
   const database = `projects/${projectId}/databases/(default)`;
@@ -93,12 +134,19 @@ export async function writeUsageHistoryRest(
     fields: encodeMap(chunk as unknown as Record<string, unknown>),
   } });
   for (let i = chunks.length; i < HISTORY_MAX_CHUNKS; i++) writes.push({ delete: name(historyChunkPath(summary.userId, summary.deviceId, summary.providerId, String(i))) });
-  const response = await fetchImpl(`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:commit`, {
-    method: 'POST', signal: AbortSignal.timeout(15_000),
-    headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ writes }),
-  });
-  if (!response.ok) throw new Error(`Firestore history write failed (${response.status})`);
+
+  const { signal: effectiveSignal, cleanup } = composeSignal(signal, 15_000);
+  try {
+    const response = await fetchImpl(`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:commit`, {
+      method: 'POST',
+      signal: effectiveSignal,
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ writes }),
+    });
+    if (!response.ok) throw new Error(`Firestore history write failed (${response.status})`);
+  } finally {
+    cleanup();
+  }
 }
 
 export async function readUsageHistoryRest(
@@ -108,22 +156,34 @@ export async function readUsageHistoryRest(
   deviceId: string,
   providerId: string,
   fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
 ): Promise<UsageHistorySnapshot | undefined> {
   const url = restDocumentUrl(projectId, historyDocPath(uid, deviceId, providerId));
-  const response = await fetchImpl(url, { method: 'GET', headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' } });
-  if (response.status === 404) return undefined;
-  if (!response.ok) throw new Error(`Firestore history read failed (${response.status})`);
-  const payload = await response.json() as { fields?: Record<string, FirestoreValue> };
-  if (!payload.fields) throw new Error('Firestore history document is missing fields');
-  const summary = parseHistorySummary(decodeMap(payload.fields));
-  if (summary.userId !== uid || summary.deviceId !== deviceId || summary.providerId !== providerId) throw new Error('history identity mismatch');
-  if (!('storageVersion' in summary)) return summary;
-  if (summary.chunkCount === 0) return assembleUsageHistory(summary, []);
-  const chunksResponse = await fetchImpl(`${url}/historyChunks?pageSize=7`, {
-    method: 'GET', signal: AbortSignal.timeout(15_000), headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },
-  });
-  if (!chunksResponse.ok) throw new Error(`Firestore history chunks read failed (${chunksResponse.status})`);
-  const page = await chunksResponse.json() as { documents?: Array<{ fields?: Record<string, FirestoreValue> }>; nextPageToken?: string };
-  if (page.nextPageToken) throw new Error('history chunks exceed bounds');
-  return assembleUsageHistory(summary, (page.documents ?? []).map(d => decodeMap(d.fields ?? {})));
+  const { signal: effectiveSignal, cleanup } = composeSignal(signal, 15_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      signal: effectiveSignal,
+      headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },
+    });
+    if (response.status === 404) return undefined;
+    if (!response.ok) throw new Error(`Firestore history read failed (${response.status})`);
+    const payload = await response.json() as { fields?: Record<string, FirestoreValue> };
+    if (!payload.fields) throw new Error('Firestore history document is missing fields');
+    const summary = parseHistorySummary(decodeMap(payload.fields));
+    if (summary.userId !== uid || summary.deviceId !== deviceId || summary.providerId !== providerId) throw new Error('history identity mismatch');
+    if (!('storageVersion' in summary)) return summary;
+    if (summary.chunkCount === 0) return assembleUsageHistory(summary, []);
+    const chunksResponse = await fetchImpl(`${url}/historyChunks?pageSize=7`, {
+      method: 'GET',
+      signal: effectiveSignal,
+      headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },
+    });
+    if (!chunksResponse.ok) throw new Error(`Firestore history chunks read failed (${chunksResponse.status})`);
+    const page = await chunksResponse.json() as { documents?: Array<{ fields?: Record<string, FirestoreValue> }>; nextPageToken?: string };
+    if (page.nextPageToken) throw new Error('history chunks exceed bounds');
+    return assembleUsageHistory(summary, (page.documents ?? []).map(d => decodeMap(d.fields ?? {})));
+  } finally {
+    cleanup();
+  }
 }

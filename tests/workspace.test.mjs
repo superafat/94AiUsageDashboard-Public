@@ -34,6 +34,12 @@ test('workspace exposes canonical verification commands', () => {
   }
 });
 
+test('Firebase verification scripts exclude nested .worktrees from Vitest discovery', () => {
+  for (const script of ['test:rules', 'test:acceptance']) {
+    assert.match(pkg.scripts?.[script] ?? '', /--exclude(?:=|\s+)["']?\.worktrees\/\*\*/);
+  }
+});
+
 test('agent CLI loads root .env.local when present', () => {
   assert.match(agentPkg.scripts?.cli ?? '', /--env-file-if-exists=.*\.env\.local/);
 });

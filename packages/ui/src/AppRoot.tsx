@@ -1,10 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AppClientServices, AppLocation, AppUser } from '@94ai/client';
-import type { UsageSnapshot } from '@94ai/core';
+import {
+  isSnapshotStale,
+  REMOTE_SYNC_STALE_AFTER_MS,
+  SOURCE_STALE_AFTER_MS,
+  type UsageSnapshot,
+} from '@94ai/core';
 import { useUsage, type UsageState } from './hooks/useUsage';
 import { useUsageHistory, type UsageHistoryState } from './hooks/useUsageHistory';
 import { AppShell } from './components/AppShell';
-import { providerFamily, providerSort } from './provider-display';
+import { providerSort } from './provider-display';
 import { screenForRoute } from './navigation';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { GettingStartedScreen } from './screens/GettingStartedScreen';
@@ -15,30 +20,20 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { UsageStatsScreen } from './screens/UsageStatsScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 
-export const REMOTE_SYNC_STALE_AFTER_MS = 7 * 60 * 1000;
-export const SOURCE_STALE_AFTER_MS = 12 * 60 * 1000;
-
-export function isSnapshotStale(snapshot: UsageSnapshot, now: number): boolean {
-  if (snapshot.stale) return true;
-  const syncedAt = Date.parse(snapshot.syncedAt);
-  const fetchedAt = Date.parse(snapshot.fetchedAt);
-  return !Number.isFinite(syncedAt) || !Number.isFinite(fetchedAt)
-    || syncedAt + REMOTE_SYNC_STALE_AFTER_MS <= now
-    || fetchedAt + SOURCE_STALE_AFTER_MS <= now;
-}
+export { REMOTE_SYNC_STALE_AFTER_MS, SOURCE_STALE_AFTER_MS, isSnapshotStale };
 
 export function visibleUsageItems(items: UsageSnapshot[], now: number): UsageSnapshot[] {
   return items.filter((item) => {
     if (!isSnapshotStale(item, now)) return true;
     if (Object.keys(item.resources).length === 0) return false;
-    const family = providerFamily(item.providerId);
     return !items.some((candidate) =>
       candidate !== item
       && candidate.deviceId === item.deviceId
-      && providerFamily(candidate.providerId) === family
+      && candidate.providerId === item.providerId
       && !isSnapshotStale(candidate, now));
   });
 }
+
 
 interface AuthenticatedRoutesProps {
   user: AppUser;
@@ -68,10 +63,33 @@ function AuthenticatedRoutes({ user, usage, history, location, services }: Authe
     hasStale={items.some((item) => isSnapshotStale(item, now))} onNavigate={navigate}
   />, true);
   if (location.route === 'usage') return shell(<UsageStatsScreen items={history.items} now={new Date(now)} />);
-  if (location.route === 'resets') return shell(<ResetCreditsScreen items={items} />);
+  if (location.route === 'resets') return shell(<ResetCreditsScreen items={items} now={new Date(now)} />);
   if (location.route === 'provider') {
-    const snapshot = items.find((item) => item.providerId === location.providerId);
-    return shell(snapshot ? <ProviderDetailScreen snapshot={snapshot} onNavigate={navigate} /> : <section className="state-card"><strong>找不到這個資料來源</strong><p>回到首頁重新選擇 Provider。</p></section>);
+    const snapshot = items.find((item) =>
+      item.providerId === location.providerId && (!location.deviceId || item.deviceId === location.deviceId)
+    );
+    if (!snapshot) {
+      return shell(<section className="state-card"><strong>找不到這個資料來源</strong><p>回到首頁重新選擇 Provider。</p></section>);
+    }
+
+    const historyItem = history.items.find((item) =>
+      item.providerId === snapshot.providerId && item.deviceId === snapshot.deviceId
+    );
+    const historyError = history.status === 'error' ? history.message : undefined;
+    const historySyncedAt = historyItem ? Date.parse(historyItem.syncedAt) : NaN;
+    const historyStale = historyItem
+      ? !Number.isFinite(historySyncedAt) || historySyncedAt > now || historySyncedAt + REMOTE_SYNC_STALE_AFTER_MS <= now
+      : false;
+
+    return shell(
+      <ProviderDetailScreen
+        snapshot={snapshot}
+        historyError={historyError}
+        historyStale={historyStale}
+        now={new Date(now)}
+        onNavigate={navigate}
+      />
+    );
   }
   if (location.route === 'help') return shell(<HelpScreen onNavigate={navigate} />);
   if (location.route === 'settings') return shell(<SettingsScreen userName={user.displayName ?? '帳號'} backendProfile={services.backendProfile} onNavigate={navigate} onSignOut={() => services.auth.signOut()} />);

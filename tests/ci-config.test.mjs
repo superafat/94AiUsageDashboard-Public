@@ -10,3 +10,7 @@ test('CI uses current Node 24 based official action majors', () => {
   assert.match(workflow, /actions\/setup-java@v5/);
   assert.doesNotMatch(workflow, /actions\/(?:checkout|setup-node|setup-java)@v4/);
 });
+
+test('CI workflow configures actions/checkout with fetch-depth: 0 for complete history audit', () => {
+  assert.match(workflow, /actions\/checkout@v5[\s\S]*?with:\s*[\s\S]*?fetch-depth:\s*0/);
+});

@@ -1,6 +1,6 @@
 {
   "name": "94ai-usage-dashboard",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "engines": {
@@ -20,11 +20,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "node --test tests/*.test.mjs && npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "test:rules": "firebase emulators:exec --project demo-94aiusage --only firestore \"vitest run tests/firestore-rules.test.ts\"",
+    "test:rules": "firebase emulators:exec --project demo-94aiusage --only firestore \"vitest run tests/firestore-rules.test.ts --exclude '.worktrees/**'\"",
     "test:e2e": "playwright test",
     "usage": "npm run cli -w apps/agent --",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:acceptance": "firebase emulators:exec --project demo-94aiusage --only firestore \"vitest run tests/local-agent-firestore-acceptance.test.ts tests/firestore-web-acceptance.test.tsx tests/history-storage-acceptance.test.ts\"",
+    "test:acceptance": "firebase emulators:exec --project demo-94aiusage --only firestore \"vitest run tests/local-agent-firestore-acceptance.test.ts tests/firestore-web-acceptance.test.tsx tests/history-storage-acceptance.test.ts --exclude '.worktrees/**'\"",
     "build:hosting": "node scripts/build-hosting.mjs",
     "audit:public": "node scripts/audit-public-release.mjs",
     "export:public": "node scripts/export-public-release.mjs",

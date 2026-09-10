@@ -63,4 +63,55 @@ describe('writeUsageSnapshotRest', () => {
     await expect(readUsageHistoryRest('demo', 'firebase-id-token', 'alice', 'device-1', 'codex', fakeRead)).resolves.toBeUndefined();
   });
 
+  it('honors caller AbortSignal and aborts in-flight fetch in writeUsageSnapshotRest', async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const fakeFetch = async (_input: string | URL | Request, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }
+      });
+    };
+
+    const writePromise = writeUsageSnapshotRest('demo', 'firebase-id-token', snapshot, fakeFetch, controller.signal);
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal?.aborted).toBe(false);
+
+    controller.abort();
+    await expect(writePromise).rejects.toThrow();
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
+  it('honors caller AbortSignal in writeUsageHistoryRest and passes to fetch', async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const fakeFetch = async (_input: string | URL | Request, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }
+      });
+    };
+
+    const history = {
+      schemaVersion: 1 as const, userId: 'alice', deviceId: 'device-1', providerId: 'codex',
+      syncedAt: '2026-09-06T00:00:00.000Z', currency: 'USD' as const,
+      periods: {},
+      daily: [],
+    };
+
+    const writePromise = writeUsageHistoryRest('demo', 'firebase-id-token', history, fakeFetch, controller.signal);
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal?.aborted).toBe(false);
+    controller.abort();
+    await expect(writePromise).rejects.toThrow();
+    expect(observedSignal?.aborted).toBe(true);
+  });
 });

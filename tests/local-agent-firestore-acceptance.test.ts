@@ -39,7 +39,7 @@ function openUsagePayload() {
 
 function openUsageHistoryPayload() {
   return [{
-    providerId: 'codex', plan: 'Pro', fetchedAt: new Date().toISOString(), lines: [
+    providerId: 'codex', plan: 'Pro', fetchedAt: '2026-09-06T10:00:00.000Z', lines: [
       { type: 'text', label: 'Today', value: '$1.25 · 100 tokens' },
       { type: 'text', label: 'Yesterday', value: '$0.50 · 50 tokens' },
       { type: 'text', label: 'Last 30 Days', value: '$9.00 · 900 tokens' },

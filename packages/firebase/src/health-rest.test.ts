@@ -35,4 +35,24 @@ describe('device health Firestore REST', () => {
     await expect(writeDeviceHealthRest('demo', 'firebase-id-token', { ...health, token: 'private' } as never, fakeFetch)).rejects.toThrow(/unknown field/i);
     expect(called).toBe(false);
   });
+
+  it('honors caller AbortSignal and aborts in-flight fetch in writeDeviceHealthRest', async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const fakeFetch = async (_input: string | URL | Request, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) => {
+        if (init?.signal) {
+          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }
+      });
+    };
+
+    const writePromise = writeDeviceHealthRest('demo', 'firebase-id-token', health, fakeFetch, controller.signal);
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal?.aborted).toBe(false);
+    controller.abort();
+    await expect(writePromise).rejects.toThrow();
+    expect(observedSignal?.aborted).toBe(true);
+  });
 });

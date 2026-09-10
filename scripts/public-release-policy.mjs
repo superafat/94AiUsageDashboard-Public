@@ -43,8 +43,22 @@ export function loadPrivateReleaseBaseline(baselinePath = PRIVATE_RELEASE_BASELI
     }
   }
 
+  const HEX_COMMIT_40_REGEX = /^[0-9a-f]{40}$/i;
+  for (const entry of parsed.history) {
+    if (
+      !entry
+      || typeof entry.category !== 'string' || !entry.category.trim()
+      || typeof entry.path !== 'string' || !entry.path.trim()
+      || typeof entry.reason !== 'string' || !entry.reason.trim()
+      || typeof entry.commit !== 'string' || !HEX_COMMIT_40_REGEX.test(entry.commit.trim())
+    ) {
+      throw new Error('Private release baseline contains an invalid history entry: complete 40-character commit identity and category/path/reason required');
+    }
+  }
+
   return parsed;
 }
+
 
 const PRIVATE_RELEASE_BASELINE = loadPrivateReleaseBaseline();
 export const REVIEWED_BINARY_SHAS = new Set(PRIVATE_RELEASE_BASELINE.reviewedBinaries);

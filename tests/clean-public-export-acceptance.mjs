@@ -196,11 +196,18 @@ export function assertRequiredFiles(baseDir, files, label = 'required file') {
   return files;
 }
 
-export function cleanupAcceptanceDirectories({ exportDir, cleanDir, keepExportDir = false, keepCleanDir = false }) {
-  if (!keepCleanDir && cleanDir && fs.existsSync(cleanDir)) {
+export function cleanupAcceptanceDirectories({
+  exportDir,
+  cleanDir,
+  keepExportDir = false,
+  keepCleanDir = false,
+  isCallerExportDir = false,
+  isCallerCleanDir = false,
+}) {
+  if (!isCallerCleanDir && !keepCleanDir && cleanDir && fs.existsSync(cleanDir)) {
     try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
-  if (!keepExportDir && exportDir && fs.existsSync(exportDir)) {
+  if (!isCallerExportDir && !keepExportDir && exportDir && fs.existsSync(exportDir)) {
     try { fs.rmSync(exportDir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
@@ -215,11 +222,14 @@ export function cleanupAcceptanceDirectories({ exportDir, cleanDir, keepExportDi
  */
 export async function runCleanExportAcceptance(options = {}) {
   const repoCwd = path.resolve(options.cwd ?? process.cwd());
-  const exportDir = path.resolve(options.exportDir ?? path.join(os.tmpdir(), `94aiusage-v0.1.2-public-${Date.now()}`));
+  const isCallerExportDir = Boolean(options.exportDir);
+  const isCallerCleanDir = Boolean(options.cleanDir);
+  const exportDir = path.resolve(options.exportDir ?? path.join(os.tmpdir(), `94aiusage-clean-export-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`));
   const cleanDir = path.resolve(options.cleanDir ?? fs.mkdtempSync(path.join(os.tmpdir(), '94aiusage-clean-acceptance-')));
   const verbose = options.verbose ?? false;
   const keepCleanDir = options.keepCleanDir ?? false;
   const keepExportDir = options.keepExportDir ?? false;
+
 
   const log = (msg) => {
     if (verbose) console.log(msg);
@@ -357,9 +367,17 @@ export async function runCleanExportAcceptance(options = {}) {
       error: err.message,
     };
   } finally {
-    cleanupAcceptanceDirectories({ exportDir, cleanDir, keepExportDir, keepCleanDir });
+    cleanupAcceptanceDirectories({
+      exportDir,
+      cleanDir,
+      keepExportDir,
+      keepCleanDir,
+      isCallerExportDir,
+      isCallerCleanDir,
+    });
   }
 }
+
 
 const isDirectTestExecution = process.argv.some((arg) => arg.includes('clean-public-export-acceptance.mjs'));
 
@@ -373,8 +391,10 @@ if (isDirectTestExecution) {
     fs.writeFileSync(path.join(tmpSrc, 'package-lock.json'), '{}');
     fs.writeFileSync(path.join(tmpSrc, 'PUBLIC_EXPORT_MANIFEST.sha256'), '# manifest');
     fs.writeFileSync(path.join(tmpSrc, '.env.example'), 'VAR=1');
+    fs.writeFileSync(path.join(tmpSrc, 'LICENSE'), 'MIT License');
 
     const result = copyExportedBytes(tmpSrc, tmpDest);
+
     assert.equal(result.success, true);
     assert.ok(fs.existsSync(path.join(tmpDest, 'package.json')));
     assert.ok(fs.existsSync(path.join(tmpDest, 'PUBLIC_EXPORT_MANIFEST.sha256')));
@@ -459,6 +479,23 @@ test('runCleanExportAcceptance runs full clean-room acceptance across clean expo
     return;
   }
 
+  let isWorktreeClean = false;
+  try {
+    const diff = execFileSync('git', ['status', '--porcelain', '-uno'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    isWorktreeClean = diff.length === 0;
+  } catch {
+    isWorktreeClean = false;
+  }
+
+  if (!isWorktreeClean) {
+    t.skip('Skipping full live workspace clean export acceptance when running with uncommitted working tree changes');
+    return;
+  }
+
   const result = await runCleanExportAcceptance({
     cwd: process.cwd(),
     verbose: false,
@@ -485,6 +522,31 @@ test('clean acceptance cleanup removes both temporary directories', () => {
   assert.equal(fs.existsSync(exportDir), false);
   assert.equal(fs.existsSync(cleanDir), false);
 });
+
+test('cleanupAcceptanceDirectories preserves caller-supplied directories and sentinels', () => {
+  const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleanup-export-caller-'));
+  const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleanup-clean-caller-'));
+  const exportSentinel = path.join(exportDir, 'sentinel.txt');
+  const cleanSentinel = path.join(cleanDir, 'sentinel.txt');
+  fs.writeFileSync(exportSentinel, 'caller export data');
+  fs.writeFileSync(cleanSentinel, 'caller clean data');
+  try {
+    cleanupAcceptanceDirectories({
+      exportDir,
+      cleanDir,
+      isCallerExportDir: true,
+      isCallerCleanDir: true,
+    });
+    assert.equal(fs.existsSync(exportDir), true, 'caller exportDir must not be removed');
+    assert.equal(fs.existsSync(exportSentinel), true, 'caller export sentinel must not be removed');
+    assert.equal(fs.existsSync(cleanDir), true, 'caller cleanDir must not be removed');
+    assert.equal(fs.existsSync(cleanSentinel), true, 'caller clean sentinel must not be removed');
+  } finally {
+    try { fs.rmSync(exportDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+    try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+  }
+});
+
 
 test('clean acceptance required-file assertion fails closed', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'required-docs-'));

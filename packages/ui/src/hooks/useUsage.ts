@@ -8,21 +8,48 @@ export type UsageState =
   | { status: 'ready'; items: UsageSnapshot[] }
   | { status: 'error'; items: UsageSnapshot[]; message: string };
 
+type ScopedUsageState = {
+  services: AppClientServices;
+  uid: string | null;
+  value: UsageState;
+};
+
+function initialValue(uid: string | null): UsageState {
+  return uid ? { status: 'loading', items: [] } : { status: 'idle', items: [] };
+}
+
 export function useUsage(services: AppClientServices, uid: string | null): UsageState {
-  const [state, setState] = useState<UsageState>({ status: uid ? 'loading' : 'idle', items: [] });
+  const [scoped, setScoped] = useState<ScopedUsageState>(() => ({ services, uid, value: initialValue(uid) }));
+  const matchesScope = scoped.services === services && scoped.uid === uid;
+  const effectiveState = matchesScope ? scoped.value : initialValue(uid);
 
   useEffect(() => {
-    if (!uid) {
-      setState({ status: 'idle', items: [] });
-      return undefined;
-    }
-    setState({ status: 'loading', items: [] });
-    return services.usage.subscribe(
-      uid,
-      (items) => setState({ status: 'ready', items }),
-      (error) => setState({ status: 'error', items: [], message: error.message }),
+    const scopeServices = services;
+    const scopeUid = uid;
+    let active = true;
+    let lastGood: UsageSnapshot[] = [];
+
+    setScoped({ services: scopeServices, uid: scopeUid, value: initialValue(scopeUid) });
+    if (!scopeUid) return () => { active = false; };
+
+    const unsubscribe = scopeServices.usage.subscribe(
+      scopeUid,
+      (items) => {
+        if (!active) return;
+        lastGood = items;
+        setScoped({ services: scopeServices, uid: scopeUid, value: { status: 'ready', items } });
+      },
+      (error) => {
+        if (!active) return;
+        setScoped({ services: scopeServices, uid: scopeUid, value: { status: 'error', items: lastGood, message: error.message } });
+      },
     );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [services, uid]);
 
-  return state;
+  return effectiveState;
 }

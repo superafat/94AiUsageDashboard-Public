@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { summarizeHistory, type UsageHistorySnapshot, type UsagePeriod } from '@94ai/core';
+import { formatTokens, summarizeHistory, type UsageHistorySnapshot, type UsagePeriod } from '@94ai/core';
 import { PeriodSelector } from '../components/PeriodSelector';
 import { UsageTrendChart } from '../components/UsageTrendChart';
 import { providerFamily } from '../provider-display';
@@ -10,13 +10,6 @@ function providerLabel(providerId: string): string {
   if (family === 'antigravity') return 'Antigravity';
   if (family === 'claude') return 'Claude Code';
   return providerId;
-}
-
-function formatTokens(value: number): string {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(value >= 10_000_000_000 ? 1 : 2)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 100_000_000 ? 1 : 2)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(Math.round(value));
 }
 
 function recentDates(now: Date, count: number): Set<string> {

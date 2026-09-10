@@ -74,4 +74,45 @@ describe('normalizeOpenUsageLimits', () => {
     expect(result?.resources.weekly).toMatchObject({ remaining: 48 });
   });
 
+  it('normalizes upstream errors to bounded allowlisted diagnostic labels without leaking paths or tokens', () => {
+    const normal = fixture('normal') as { providers: Record<string, unknown> };
+    const envelope = {
+      schema: 'openusage.limits.v1',
+      providers: normal.providers,
+      errors: [
+        { providerId: 'codex', message: `Failed to authenticate: Bearer ${['ghp', '1234567890abcdef12345678901234567890'].join('_')} at ${['', 'Users', 'synthetic-user', '.tokens.json'].join('/')}` },
+        { providerId: 'other', message: 'Rate limit exceeded: 429 Too Many Requests' },
+      ],
+    };
+    const [result] = normalizeOpenUsageLimits(envelope, ctx);
+    expect(result?.errorSummary).toBe('not logged in');
+    expect(result?.errorSummary).not.toMatch(/Bearer|ghp_|\/Users/);
+  });
+
+  it('marks snapshot stale when expiresAt is expired relative to syncedAt', () => {
+    const normal = fixture('normal') as { providers: Record<string, { fetchedAt: string; expiresAt: string; stale?: boolean }> };
+    const expiredProvider = {
+      ...normal.providers.codex!,
+      fetchedAt: '2026-09-05T09:50:00.000Z',
+      expiresAt: '2026-09-05T09:55:00.000Z', // Before ctx.syncedAt (10:00:15)
+      stale: false, // Upstream claims false, but expiresAt is in past!
+    };
+    const [result] = normalizeOpenUsageLimits({
+      schema: 'openusage.limits.v1',
+      providers: { codex: expiredProvider },
+    }, ctx);
+    expect(result?.stale).toBe(true);
+  });
+
+  it('does not treat passed resetsAt as replenishment', () => {
+    const normal = fixture('normal') as { providers: Record<string, { resources: Record<string, unknown> }> };
+    normal.providers.codex!.resources.session = {
+      kind: 'consumption',
+      unit: 'percent',
+      remaining: 0,
+      resetsAt: '2026-09-05T09:00:00.000Z', // In the past
+    };
+    const [result] = normalizeOpenUsageLimits(normal, ctx);
+    expect(result?.resources.session && 'remaining' in result.resources.session ? result.resources.session.remaining : undefined).toBe(0);
+  });
 });

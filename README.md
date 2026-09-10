@@ -16,7 +16,7 @@
 
 資料由你自己的 Mac 上的 [OpenUsage](https://github.com/robinebers/openusage) 讀取，再由 Mac Companion 正規化後同步到 **你自己的 Firebase 專案**。目前額度優先使用 OpenUsage CLI；CLI 不可用時才使用固定 localhost HTTP fallback。歷史 Token／估算費用走隔離的本機 history adapter。
 
-> 目前 v1.5 的遠端操作維持只讀：不提供遠端重置額度、不控制 Mac、不啟動 AI 工具，也不消耗 reset credits。
+> **只讀觀察與職責邊界**：本專案為帳號層級額度、歷史用量與重置視窗之只讀觀察儀表板。工作派工與調度由 DevControl 統一管理。Dashboard 不啟動 AI 工具、不控制 Mac、不遠端重置額度、不購買額度、不集中管理 Provider 憑證；未知或過期資料不會假造成可用餘額。所有費用皆為本機 API 等值估算，不是實際帳單。
 
 ## 架構
 
@@ -198,9 +198,9 @@ E2E 使用手機尺寸瀏覽器，驗證 Codex、Antigravity、Claude Code、多
 
 ## 開源與發布方式
 
-94AiUsageDashboard v0.1.2 採 **MIT License**。完整私人開發歷史不公開；正式公開版本只會由通過安全檢查的乾淨匯出建立，避免把本機路徑、內部規劃、測試證據或其他私人開發痕跡帶進公開 Git 歷史。
+94AiUsageDashboard v0.1.3（先前版本 v0.1.2 維持不可變紀錄）採 **MIT License**。完整私人開發歷史不公開；正式公開版本只會由通過安全檢查的乾淨匯出建立，避免把本機路徑、內部規劃、測試證據或其他私人開發痕跡帶進公開 Git 歷史。
 
-公開發布倉庫為 `superafat/94AiUsageDashboard-Public`。公開使用者以 Self-hosted 模式部署自己的 Firebase，Provider 憑證保留在自己的 Mac。Android／iPhone 商店版本仍屬未來階段，不在 v0.1.2 範圍。
+公開發布倉庫為 `superafat/94AiUsageDashboard-Public`。公開使用者以 Self-hosted 模式部署自己的 Firebase，Provider 憑證保留在自己的 Mac。Android／iPhone 商店版本仍屬未來階段，不在 v0.1.3 範圍。
 
 ## License
 

@@ -15,6 +15,34 @@ import {
 
 export const DEFAULT_EXPORT_PATH = '/tmp/94aiusage-v0.1.2-public';
 
+function getCanonicalPath(p) {
+  if (!p) return '';
+  const resolved = path.resolve(p);
+  let curr = resolved;
+  const parts = [];
+  while (!fs.existsSync(curr)) {
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    parts.unshift(path.basename(curr));
+    curr = parent;
+  }
+  let realBase = curr;
+  try {
+    if (fs.existsSync(curr)) {
+      realBase = fs.realpathSync(curr);
+    }
+  } catch {
+    realBase = curr;
+  }
+  return parts.length > 0 ? path.join(realBase, ...parts) : realBase;
+}
+
+function isInside(child, parent) {
+  if (!child || !parent) return false;
+  const rel = path.relative(parent, child);
+  return !rel.startsWith('..') && !path.isAbsolute(rel) && rel !== '';
+}
+
 export function isUnsafeExportDirectory(targetPath, repoCwd = null) {
   if (!targetPath) return true;
   const resolved = path.resolve(targetPath);
@@ -22,7 +50,7 @@ export function isUnsafeExportDirectory(targetPath, repoCwd = null) {
   const home = path.resolve(os.homedir());
   const sysTmp = path.resolve(os.tmpdir());
 
-  const dangerous = new Set([
+  const dangerousExact = new Set([
     root,
     home,
     sysTmp,
@@ -31,31 +59,64 @@ export function isUnsafeExportDirectory(targetPath, repoCwd = null) {
     '/var/tmp',
   ]);
 
-  if (repoCwd) {
-    dangerous.add(path.resolve(repoCwd));
-  }
-
-  if (dangerous.has(resolved)) {
+  if (dangerousExact.has(resolved)) {
     return true;
   }
 
-  try {
-    if (fs.existsSync(resolved)) {
-      const realTarget = fs.realpathSync(resolved);
-      if (realTarget === root) return true;
-      if (fs.existsSync(home) && realTarget === fs.realpathSync(home)) return true;
-      if (fs.existsSync(sysTmp) && realTarget === fs.realpathSync(sysTmp)) return true;
-      if (fs.existsSync('/tmp') && realTarget === fs.realpathSync('/tmp')) return true;
-      if (fs.existsSync('/private/tmp') && realTarget === fs.realpathSync('/private/tmp')) return true;
-      if (fs.existsSync('/var/tmp') && realTarget === fs.realpathSync('/var/tmp')) return true;
-      if (repoCwd && fs.existsSync(repoCwd) && realTarget === fs.realpathSync(repoCwd)) return true;
+  const canonicalTarget = getCanonicalPath(resolved);
+  const canonicalRoot = getCanonicalPath(root);
+  const canonicalHome = getCanonicalPath(home);
+  const canonicalSysTmp = getCanonicalPath(sysTmp);
+  const canonicalTmp = getCanonicalPath('/tmp');
+  const canonicalPrivateTmp = getCanonicalPath('/private/tmp');
+  const canonicalVarTmp = getCanonicalPath('/var/tmp');
+
+  const dangerousCanonical = new Set([
+    canonicalRoot,
+    canonicalHome,
+    canonicalSysTmp,
+    canonicalTmp,
+    canonicalPrivateTmp,
+    canonicalVarTmp,
+  ]);
+
+  if (dangerousCanonical.has(canonicalTarget)) {
+    return true;
+  }
+
+  // Reject .git in any path component
+  const resolvedSegments = resolved.split(path.sep);
+  if (resolvedSegments.includes('.git')) {
+    return true;
+  }
+  const canonicalSegments = canonicalTarget.split(path.sep);
+  if (canonicalSegments.includes('.git')) {
+    return true;
+  }
+
+  if (repoCwd) {
+    const resolvedRepo = path.resolve(repoCwd);
+    const canonicalRepo = getCanonicalPath(resolvedRepo);
+
+    // Repo source
+    if (resolved === resolvedRepo || canonicalTarget === canonicalRepo) {
+      return true;
     }
-  } catch {
-    // ignore filesystem errors
+
+    // Repo ancestor: repo is inside target
+    if (isInside(resolvedRepo, resolved) || isInside(canonicalRepo, canonicalTarget)) {
+      return true;
+    }
+
+    // Repo descendant: target is inside repo
+    if (isInside(resolved, resolvedRepo) || isInside(canonicalTarget, canonicalRepo)) {
+      return true;
+    }
   }
 
   return false;
 }
+
 
 export const DEFAULT_EXCLUDE_PATTERNS = [
   // 1. Git internal metadata
@@ -163,12 +224,12 @@ export function auditExportDirectory(exportDir, options = {}) {
       let stat;
       try {
         stat = fs.statSync(fullPath);
-      } catch (err) {
+      } catch {
         findings.push({
           severity: 'BLOCKER',
           category: 'manual_review_required',
           path: relPath,
-          detail: `failed to stat file: ${err.message}`,
+          detail: 'failed to stat file',
         });
         continue;
       }
@@ -193,15 +254,16 @@ export function auditExportDirectory(exportDir, options = {}) {
       let buffer;
       try {
         buffer = fs.readFileSync(fullPath);
-      } catch (err) {
+      } catch {
         findings.push({
           severity: 'BLOCKER',
           category: 'manual_review_required',
           path: relPath,
-          detail: `failed to read file: ${err.message}`,
+          detail: 'failed to read file',
         });
         continue;
       }
+
 
       const binaryFinding = checkBinaryFile(buffer, relPath, options);
       if (binaryFinding) {
@@ -265,26 +327,33 @@ export function exportPublicRelease(options = {}) {
     throw new Error(`Export blocked: source tree audit found ${treeBlockers.length} blockers:\n${summary}`);
   }
 
-  // Step 2: Resolve source commit SHA
-  let sourceCommit = options.commitSha;
-  if (!sourceCommit) {
-    try {
-      sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoCwd, encoding: 'utf8' }).trim();
-    } catch (err) {
-      throw new Error(`Unable to resolve git commit SHA in ${repoCwd}: ${err.message}`);
-    }
+  // Step 2: Resolve source commit SHA bound strictly to exact Git HEAD
+  let actualHead;
+  try {
+    actualHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoCwd, encoding: 'utf8' }).trim();
+  } catch (err) {
+    throw new Error(`Unable to resolve git commit SHA in ${repoCwd}: ${err.message}`);
   }
+  if (options.commitSha && options.commitSha !== actualHead) {
+    throw new Error(`Release provenance mismatch: requested commit ${options.commitSha} does not match exact Git HEAD ${actualHead}`);
+  }
+  const sourceCommit = actualHead;
 
-  // Step 3: Candidate files strictly from git ls-files
-  let candidateFiles = options.trackedFiles;
-  if (!candidateFiles) {
-    try {
-      const output = execFileSync('git', ['ls-files', '-z'], { cwd: repoCwd, encoding: 'utf8' });
-      candidateFiles = output.split('\0').filter(Boolean);
-    } catch (err) {
-      throw new Error(`git ls-files failed in ${repoCwd}: ${err.message}`);
+  // Step 3: Candidate files strictly from git ls-files bound strictly to tracked set
+  let actualTracked;
+  try {
+    const output = execFileSync('git', ['ls-files', '-z'], { cwd: repoCwd, encoding: 'utf8' });
+    actualTracked = output.split('\0').filter(Boolean);
+  } catch (err) {
+    throw new Error(`git ls-files failed in ${repoCwd}: ${err.message}`);
+  }
+  if (options.trackedFiles) {
+    const actualSet = new Set(actualTracked);
+    if (options.trackedFiles.length !== actualTracked.length || options.trackedFiles.some((f) => !actualSet.has(f))) {
+      throw new Error('Release tracked-set mismatch: candidate files must match exact git ls-files');
     }
   }
+  const candidateFiles = actualTracked;
 
   // Step 4: Apply explicit reviewed include/exclude policy
   const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
@@ -294,13 +363,15 @@ export function exportPublicRelease(options = {}) {
   if (isUnsafeExportDirectory(outDir, repoCwd)) {
     throw new Error(`Refusing to export to unsafe directory: ${outDir}`);
   }
+  if (fs.existsSync(outDir)) {
+    throw new Error(`Refusing to export to pre-existing directory: ${outDir}`);
+  }
+
   let preparedOutDir = false;
   try {
-    if (fs.existsSync(outDir)) {
-      fs.rmSync(outDir, { recursive: true, force: true });
-    }
     fs.mkdirSync(outDir, { recursive: true });
     preparedOutDir = true;
+
 
     // Step 6: Copy files into export directory
     for (const relPath of exportedRelFiles) {

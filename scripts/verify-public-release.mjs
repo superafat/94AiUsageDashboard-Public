@@ -20,33 +20,33 @@ import { runCleanExportAcceptance } from '../tests/clean-public-export-acceptanc
  */
 export const REVIEWED_HISTORY_BASELINE = loadPrivateReleaseBaseline().history;
 
-const HEX_COMMIT_REGEX = /^[0-9a-fA-F]{7,}$/;
+const HEX_COMMIT_40_REGEX = /^[0-9a-fA-F]{40}$/;
 
 /**
  * Checks if a finding is covered by an entry in the reviewed baseline.
- * Matches category, path, and commit (requiring non-empty valid SHA/prefix >= 7 hex chars on both sides).
+ * Matches category, path, and commit (requiring complete valid 40-character hex commit identity and no prefix/fail-open behavior).
  */
 export function matchesBaseline(finding, baselineEntry) {
   if (!finding || !baselineEntry) return false;
   if (finding.category !== baselineEntry.category) return false;
   if (finding.path !== baselineEntry.path) return false;
-  if (baselineEntry.commit) {
-    if (!finding.commit || typeof finding.commit !== 'string') {
-      return false;
-    }
-    const fCommit = finding.commit.trim();
-    const bCommit = typeof baselineEntry.commit === 'string' ? baselineEntry.commit.trim() : '';
-    if (!HEX_COMMIT_REGEX.test(fCommit) || !HEX_COMMIT_REGEX.test(bCommit)) {
-      return false;
-    }
-    const fLower = fCommit.toLowerCase();
-    const bLower = bCommit.toLowerCase();
-    if (!fLower.startsWith(bLower) && !bLower.startsWith(fLower)) {
-      return false;
-    }
+
+  if (!finding.commit || typeof finding.commit !== 'string') {
+    return false;
   }
-  return true;
+  if (!baselineEntry.commit || typeof baselineEntry.commit !== 'string') {
+    return false;
+  }
+
+  const fCommit = finding.commit.trim();
+  const bCommit = baselineEntry.commit.trim();
+  if (!HEX_COMMIT_40_REGEX.test(fCommit) || !HEX_COMMIT_40_REGEX.test(bCommit)) {
+    return false;
+  }
+
+  return fCommit.toLowerCase() === bCommit.toLowerCase();
 }
+
 
 /**
  * Bounded finding formatter:
@@ -146,7 +146,12 @@ export async function verifyPublicRelease(options = {}) {
   // Step 3: Clean public export and export audit
   if (!options.skipExport) {
     log('RUN export:public');
-    const tempExportDir = options.exportOutDir ?? path.join(os.tmpdir(), `94aiusage-public-export-${Date.now()}`);
+    const isCallerExportDir = Boolean(options.exportOutDir);
+    let ownedExportRoot;
+    const tempExportDir = options.exportOutDir ?? (() => {
+      ownedExportRoot = fs.mkdtempSync(path.join(os.tmpdir(), '94aiusage-public-release-'));
+      return path.join(ownedExportRoot, 'export');
+    })();
     try {
       const exportResult = options.mockExportResult ?? exportPublicRelease({ cwd: repoCwd, outDir: tempExportDir });
       if (!exportResult || !exportResult.success) {
@@ -161,15 +166,16 @@ export async function verifyPublicRelease(options = {}) {
         error: err.message,
       };
     } finally {
-      if (!options.keepExportDir && fs.existsSync(tempExportDir)) {
+      if (!isCallerExportDir && ownedExportRoot && !options.keepExportDir && fs.existsSync(ownedExportRoot)) {
         try {
-          fs.rmSync(tempExportDir, { recursive: true, force: true });
+          fs.rmSync(ownedExportRoot, { recursive: true, force: true });
         } catch {
-          // ignore cleanup errors
+          // best-effort cleanup of the directory created by this verifier only
         }
       }
     }
   }
+
 
   // Step 4: Clean public export acceptance (clean-room install, typecheck, test, build, scan, doctor, bundle)
   if (!options.skipCleanExport) {

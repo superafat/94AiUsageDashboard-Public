@@ -193,8 +193,40 @@ export function auditGitHistory(cwd = process.cwd(), options = {}) {
     throw new Error(`Not a git repository: ${cwd}`);
   }
 
+  let isShallow = false;
+  try {
+    const shallowOut = execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    isShallow = shallowOut === 'true';
+  } catch {
+    // fallback check
+  }
+  if (!isShallow) {
+    try {
+      const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }).trim();
+      const resolvedGitDir = path.resolve(cwd, gitDir);
+      if (fs.existsSync(path.join(resolvedGitDir, 'shallow'))) {
+        isShallow = true;
+      }
+    } catch {
+      // ignore git-dir check error
+    }
+  }
+
+  if (isShallow) {
+    throw new Error('Refusing to audit shallow repository: Git history audit requires complete repository history (fetch-depth: 0)');
+  }
+
   const findings = [];
   const maxSizeBytes = options.maxSizeBytes ?? DEFAULT_MAX_SIZE;
+
 
   let revListOutput;
   try {

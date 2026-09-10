@@ -399,3 +399,22 @@ test('tree audit preserves non-ASCII Git paths and inspects their content', () =
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('auditGitHistory fails closed on shallow repository', () => {
+  const repo = setupSyntheticRepo();
+  const shallowDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-shallow-clone-'));
+  try {
+    execFileSync('git', ['clone', '--depth', '1', `file://${repo.tmpDir}`, shallowDir], {
+      stdio: 'pipe',
+      encoding: 'utf8',
+    });
+    assert.throws(
+      () => auditGitHistory(shallowDir),
+      /shallow/i,
+      'auditGitHistory must throw on shallow repository',
+    );
+  } finally {
+    repo.cleanup();
+    try { fs.rmSync(shallowDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+  }
+});

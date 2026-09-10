@@ -76,9 +76,24 @@ function setupSyntheticRepo() {
   };
 }
 
+function makeTempExportTarget(prefix = 'export-out-') {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return {
+    parent,
+    outDir: path.join(parent, 'out'),
+    cleanup: () => {
+      try {
+        fs.rmSync(parent, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    },
+  };
+}
+
 test('exportPublicRelease refuses to export and fails closed when current tree audit has blockers', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out-'));
+  const target = makeTempExportTarget('export-out-');
   try {
     // Add a tracked file containing a blocker (real secret pattern)
     const fakeKey = 'AIza' + 'SySyntheticCanaryLiveKey1234567890X';
@@ -87,60 +102,61 @@ test('exportPublicRelease refuses to export and fails closed when current tree a
     execFileSync('git', ['commit', '-m', 'add secret file'], { cwd: repo.tmpDir });
 
     assert.throws(
-      () => exportPublicRelease({ cwd: repo.tmpDir, outDir }),
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir }),
       /Export blocked: source tree audit found/i,
       'must throw when source tree has blockers',
     );
 
-    // Ensure outDir remains empty or is cleaned up
-    const files = fs.existsSync(outDir) ? fs.readdirSync(outDir) : [];
+    // Ensure target.outDir remains empty or is cleaned up
+    const files = fs.existsSync(target.outDir) ? fs.readdirSync(target.outDir) : [];
     assert.equal(files.length, 0, 'outDir must not contain any exported files on blocker');
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
 
 test('exportPublicRelease derives ONLY from git ls-files and never copies untracked or ignored developer files', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out-'));
+  const target = makeTempExportTarget('export-out-');
   try {
-    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir });
+    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir });
     assert.equal(result.success, true);
 
     // Untracked developer files must NOT exist in outDir
-    assert.ok(!fs.existsSync(path.join(outDir, '.env.local')), '.env.local must not be exported');
-    assert.ok(!fs.existsSync(path.join(outDir, 'node_modules')), 'node_modules must not be exported');
-    assert.ok(!fs.existsSync(path.join(outDir, 'firestore-debug.log')), 'firestore-debug.log must not be exported');
-    assert.ok(!fs.existsSync(path.join(outDir, '.superpowers')), '.superpowers must not be exported');
-    assert.ok(!fs.existsSync(path.join(outDir, '.git')), '.git must not be exported');
+    assert.ok(!fs.existsSync(path.join(target.outDir, '.env.local')), '.env.local must not be exported');
+    assert.ok(!fs.existsSync(path.join(target.outDir, 'node_modules')), 'node_modules must not be exported');
+    assert.ok(!fs.existsSync(path.join(target.outDir, 'firestore-debug.log')), 'firestore-debug.log must not be exported');
+    assert.ok(!fs.existsSync(path.join(target.outDir, '.superpowers')), '.superpowers must not be exported');
+    assert.ok(!fs.existsSync(path.join(target.outDir, '.git')), '.git must not be exported');
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
 
 test('exportPublicRelease excludes private evidence, plans, and internal superpowers docs', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out-'));
+  const target = makeTempExportTarget('export-out-');
   try {
-    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir });
+    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir });
     assert.equal(result.success, true);
 
     // Tracked internal docs must be excluded by policy
-    assert.ok(!fs.existsSync(path.join(outDir, 'docs/superpowers')), 'docs/superpowers must be excluded');
-    assert.ok(!fs.existsSync(path.join(outDir, 'docs/evidence')), 'docs/evidence must be excluded');
+    assert.ok(!fs.existsSync(path.join(target.outDir, 'docs/superpowers')), 'docs/superpowers must be excluded');
+    assert.ok(!fs.existsSync(path.join(target.outDir, 'docs/evidence')), 'docs/evidence must be excluded');
 
     // Clean public files must be included
-    assert.ok(fs.existsSync(path.join(outDir, 'package.json')), 'package.json must be included');
-    assert.ok(fs.existsSync(path.join(outDir, '.env.example')), '.env.example must be included');
-    assert.ok(fs.existsSync(path.join(outDir, 'README.md')), 'README.md must be included');
-    assert.ok(fs.existsSync(path.join(outDir, 'src/index.ts')), 'src/index.ts must be included');
+    assert.ok(fs.existsSync(path.join(target.outDir, 'package.json')), 'package.json must be included');
+    assert.ok(fs.existsSync(path.join(target.outDir, '.env.example')), '.env.example must be included');
+    assert.ok(fs.existsSync(path.join(target.outDir, 'README.md')), 'README.md must be included');
+    assert.ok(fs.existsSync(path.join(target.outDir, 'src/index.ts')), 'src/index.ts must be included');
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
+
 
 test('filterExportFiles enforces DEFAULT_EXCLUDE_PATTERNS deterministically', () => {
   assert.ok(DEFAULT_EXCLUDE_PATTERNS.length >= 8, 'must provide comprehensive exclude patterns');
@@ -192,11 +208,11 @@ test('generateManifest produces deterministic sorted file hashes with source com
 
 test('exportPublicRelease generates deterministic PUBLIC_EXPORT_MANIFEST.sha256 with commit SHA and file hashes without ambiguity', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out-'));
+  const target = makeTempExportTarget('export-out-');
   try {
-    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir });
+    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir });
     assert.equal(result.success, true);
-    const manifestPath = path.join(outDir, 'PUBLIC_EXPORT_MANIFEST.sha256');
+    const manifestPath = path.join(target.outDir, 'PUBLIC_EXPORT_MANIFEST.sha256');
 
     assert.ok(fs.existsSync(manifestPath), 'PUBLIC_EXPORT_MANIFEST.sha256 must exist');
     const content = fs.readFileSync(manifestPath, 'utf8');
@@ -219,7 +235,7 @@ test('exportPublicRelease generates deterministic PUBLIC_EXPORT_MANIFEST.sha256 
       assert.notEqual(filePath, 'PUBLIC_EXPORT_MANIFEST.sha256', 'manifest must not list itself');
 
       // Verify SHA matches actual file on disk
-      const fullPath = path.join(outDir, filePath);
+      const fullPath = path.join(target.outDir, filePath);
       assert.ok(fs.existsSync(fullPath), `exported file ${filePath} must exist on disk`);
       const fileBytes = fs.readFileSync(fullPath);
       const expectedHash = crypto.createHash('sha256').update(fileBytes).digest('hex');
@@ -231,51 +247,51 @@ test('exportPublicRelease generates deterministic PUBLIC_EXPORT_MANIFEST.sha256 
     assert.deepEqual(filePaths, sortedPaths, 'file entries in manifest must be sorted lexicographically');
 
     // Running export again produces identical manifest content
-    const outDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out2-'));
+    const target2 = makeTempExportTarget('export-out2-');
     try {
-      const result2 = exportPublicRelease({ cwd: repo.tmpDir, outDir: outDir2 });
+      const result2 = exportPublicRelease({ cwd: repo.tmpDir, outDir: target2.outDir });
       assert.equal(result2.success, true);
-      const content2 = fs.readFileSync(path.join(outDir2, 'PUBLIC_EXPORT_MANIFEST.sha256'), 'utf8');
+      const content2 = fs.readFileSync(path.join(target2.outDir, 'PUBLIC_EXPORT_MANIFEST.sha256'), 'utf8');
       assert.equal(content, content2, 'manifest content must be completely deterministic');
     } finally {
-      fs.rmSync(outDir2, { recursive: true, force: true });
+      target2.cleanup();
     }
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
 
 test('auditExportDirectory audits non-git exported tree using policy and fails closed if blocker appears', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-out-'));
+  const target = makeTempExportTarget('export-out-');
   try {
-    exportPublicRelease({ cwd: repo.tmpDir, outDir });
+    exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir });
 
     // The export directory is NOT a git repo
-    assert.ok(!fs.existsSync(path.join(outDir, '.git')), 'export directory is intentionally not a git repo');
+    assert.ok(!fs.existsSync(path.join(target.outDir, '.git')), 'export directory is intentionally not a git repo');
 
     // Clean export directory has zero findings
-    const initialFindings = auditExportDirectory(outDir);
+    const initialFindings = auditExportDirectory(target.outDir);
     assert.equal(initialFindings.length, 0, 'clean export directory must have 0 findings');
 
     // Injecting a sensitive file into the exported directory triggers auditExportDirectory
     const fakeSecret = 'AIza' + 'SySyntheticCanaryLiveKey1234567890X';
-    fs.writeFileSync(path.join(outDir, 'leaked.txt'), `secret: "${fakeSecret}"\n`);
+    fs.writeFileSync(path.join(target.outDir, 'leaked.txt'), `secret: "${fakeSecret}"\n`);
 
-    const findingsAfterLeak = auditExportDirectory(outDir);
+    const findingsAfterLeak = auditExportDirectory(target.outDir);
     const blocker = findingsAfterLeak.find((f) => f.category === 'secret');
     assert.ok(blocker, 'auditExportDirectory must detect secret in non-git export');
     assert.equal(blocker.severity, 'BLOCKER');
 
     // Injecting a local home path triggers blocker (assembled to avoid static canary match)
     const localHomeVal = ['/Users', 'alice', 'project'].join('/');
-    fs.writeFileSync(path.join(outDir, 'path.txt'), `path: "${localHomeVal}"\n`);
-    const findingsAfterPath = auditExportDirectory(outDir);
+    fs.writeFileSync(path.join(target.outDir, 'path.txt'), `path: "${localHomeVal}"\n`);
+    const findingsAfterPath = auditExportDirectory(target.outDir);
     assert.ok(findingsAfterPath.some((f) => f.category === 'local_home_path'), 'must detect local home path');
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
 
@@ -302,36 +318,56 @@ test('package.json defines export:public script and current workspace exports cl
     return;
   }
 
-  const defaultOutDir = '/tmp/94aiusage-v0.1.2-public';
-  // Export current tree
-  const result = exportPublicRelease({ cwd: process.cwd(), outDir: defaultOutDir });
-  assert.equal(result.success, true);
-  assert.equal(result.outDir, defaultOutDir);
-  assert.ok(result.exportedFilesCount > 50, 'must export full project files');
+  let isClean = false;
+  try {
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    isClean = status === '';
+  } catch {
+    isClean = false;
+  }
+  if (!isClean) {
+    t.skip('Skipping live workspace export test when running in a worktree with uncommitted changes');
+    return;
+  }
 
-  // Verify manifest exists and is valid
-  const manifestPath = path.join(defaultOutDir, 'PUBLIC_EXPORT_MANIFEST.sha256');
-  assert.ok(fs.existsSync(manifestPath), 'PUBLIC_EXPORT_MANIFEST.sha256 must exist in default export');
+  const liveTarget = makeTempExportTarget('94aiusage-clean-live-');
+  try {
+    const result = exportPublicRelease({ cwd: process.cwd(), outDir: liveTarget.outDir });
+    assert.equal(result.success, true);
+    assert.equal(result.outDir, liveTarget.outDir);
+    assert.ok(result.exportedFilesCount > 50, 'must export full project files');
 
-  // Verify critical files are present
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'package.json')), 'package.json must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'package-lock.json')), 'package-lock.json must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, '.env.example')), '.env.example must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'README.md')), 'README.md must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'LICENSE')), 'LICENSE must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'AI_INSTALL.md')), 'AI_INSTALL.md must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'SECURITY.md')), 'SECURITY.md must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'docs/getting-started.md')), 'getting-started.md must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'apps/agent/src/cli.ts')), 'apps/agent source must be present');
-  assert.ok(fs.existsSync(path.join(defaultOutDir, 'apps/web/src/main.tsx')), 'apps/web source must be present');
+    // Verify manifest exists and is valid
+    const manifestPath = path.join(liveTarget.outDir, 'PUBLIC_EXPORT_MANIFEST.sha256');
+    assert.ok(fs.existsSync(manifestPath), 'PUBLIC_EXPORT_MANIFEST.sha256 must exist in default export');
 
-  // Verify excluded items are ABSENT
-  assert.ok(!fs.existsSync(path.join(defaultOutDir, '.git')), '.git must be absent');
-  assert.ok(!fs.existsSync(path.join(defaultOutDir, '.superpowers')), '.superpowers must be absent');
-  assert.ok(!fs.existsSync(path.join(defaultOutDir, 'docs/superpowers')), 'docs/superpowers must be absent');
-  assert.ok(!fs.existsSync(path.join(defaultOutDir, 'docs/evidence')), 'docs/evidence must be absent');
-  assert.ok(!fs.existsSync(path.join(defaultOutDir, '.env.local')), '.env.local must be absent');
+    // Verify critical files are present
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'package.json')), 'package.json must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'package-lock.json')), 'package-lock.json must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, '.env.example')), '.env.example must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'README.md')), 'README.md must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'LICENSE')), 'LICENSE must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'AI_INSTALL.md')), 'AI_INSTALL.md must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'SECURITY.md')), 'SECURITY.md must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'docs/getting-started.md')), 'getting-started.md must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'apps/agent/src/cli.ts')), 'apps/agent source must be present');
+    assert.ok(fs.existsSync(path.join(liveTarget.outDir, 'apps/web/src/main.tsx')), 'apps/web source must be present');
+
+    // Verify excluded items are ABSENT
+    assert.ok(!fs.existsSync(path.join(liveTarget.outDir, '.git')), '.git must be absent');
+    assert.ok(!fs.existsSync(path.join(liveTarget.outDir, '.superpowers')), '.superpowers must be absent');
+    assert.ok(!fs.existsSync(path.join(liveTarget.outDir, 'docs/superpowers')), 'docs/superpowers must be absent');
+    assert.ok(!fs.existsSync(path.join(liveTarget.outDir, 'docs/evidence')), 'docs/evidence must be absent');
+    assert.ok(!fs.existsSync(path.join(liveTarget.outDir, '.env.local')), '.env.local must be absent');
+  } finally {
+    liveTarget.cleanup();
+  }
 });
+
 
 test('exportPublicRelease refuses to export to system temp root /tmp, os.tmpdir(), root, homedir, or repo cwd', () => {
   const repo = setupSyntheticRepo();
@@ -374,6 +410,130 @@ test('isUnsafeExportDirectory accurately classifies unsafe system roots vs safe 
   assert.equal(isUnsafeExportDirectory('/tmp/nonexistent-subpath-test'), false);
   assert.equal(isUnsafeExportDirectory(path.join(os.tmpdir(), 'valid-export-subfolder')), false);
 });
+
+test('isUnsafeExportDirectory rejects repo source, ancestors, descendants, .git, and symlink aliases', () => {
+  const repo = setupSyntheticRepo();
+  try {
+    const cwd = repo.tmpDir;
+    // 1. Repo source
+    assert.equal(isUnsafeExportDirectory(cwd, cwd), true, 'repo source must be unsafe');
+    // 2. Repo ancestor
+    const ancestor = path.dirname(cwd);
+    assert.equal(isUnsafeExportDirectory(ancestor, cwd), true, 'repo ancestor must be unsafe');
+    const grandAncestor = path.dirname(ancestor);
+    assert.equal(isUnsafeExportDirectory(grandAncestor, cwd), true, 'repo grand-ancestor must be unsafe');
+    // 3. Repo descendant
+    const descendant = path.join(cwd, 'sub-dir');
+    assert.equal(isUnsafeExportDirectory(descendant, cwd), true, 'repo descendant must be unsafe');
+    // 4. .git inside repo or anywhere
+    const gitDir = path.join(cwd, '.git');
+    assert.equal(isUnsafeExportDirectory(gitDir, cwd), true, '.git must be unsafe');
+    const gitSubDir = path.join(cwd, '.git', 'objects');
+    assert.equal(isUnsafeExportDirectory(gitSubDir, cwd), true, 'inside .git must be unsafe');
+    // 5. Symlinks escaping to ancestor or descendant
+    const tmpLinks = fs.mkdtempSync(path.join(os.tmpdir(), 'symlink-unsafe-test-'));
+    try {
+      const linkToAncestor = path.join(tmpLinks, 'link-to-ancestor');
+      fs.symlinkSync(ancestor, linkToAncestor);
+      assert.equal(isUnsafeExportDirectory(linkToAncestor, cwd), true, 'symlink to ancestor must be unsafe');
+
+      const linkToDescendant = path.join(tmpLinks, 'link-to-descendant');
+      fs.symlinkSync(cwd, linkToDescendant);
+      assert.equal(isUnsafeExportDirectory(linkToDescendant, cwd), true, 'symlink to repo source must be unsafe');
+    } finally {
+      try { fs.rmSync(tmpLinks, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('exportPublicRelease refuses to export to pre-existing caller directory and preserves caller files', () => {
+  const repo = setupSyntheticRepo();
+  const callerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pre-existing-caller-'));
+  const sentinel = path.join(callerDir, 'caller-sentinel.txt');
+  fs.writeFileSync(sentinel, 'caller data - do not delete');
+  try {
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: callerDir }),
+      /Refusing to export to pre-existing directory/i,
+    );
+    assert.ok(fs.existsSync(callerDir), 'pre-existing caller directory must remain');
+    assert.ok(fs.existsSync(sentinel), 'sentinel file in caller directory must remain');
+    assert.equal(fs.readFileSync(sentinel, 'utf8'), 'caller data - do not delete');
+  } finally {
+    repo.cleanup();
+    try { fs.rmSync(callerDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+  }
+});
+
+test('exportPublicRelease rejects repo source, repo ancestor, and repo descendant including .git', () => {
+  const repo = setupSyntheticRepo();
+  try {
+    // 1. Repo source itself
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: repo.tmpDir }),
+      /Refusing to export to unsafe directory/i,
+    );
+    // 2. Repo ancestor
+    const ancestor = path.dirname(repo.tmpDir);
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: ancestor }),
+      /Refusing to export to unsafe directory/i,
+    );
+    // 3. Repo descendant
+    const descendant = path.join(repo.tmpDir, 'sub-export');
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: descendant }),
+      /Refusing to export to unsafe directory/i,
+    );
+    // 4. .git inside repo
+    const gitDir = path.join(repo.tmpDir, '.git');
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: gitDir }),
+      /Refusing to export to unsafe directory/i,
+    );
+    // 5. subfolder in .git
+    const gitSubDir = path.join(repo.tmpDir, '.git', 'sub');
+    assert.throws(
+      () => exportPublicRelease({ cwd: repo.tmpDir, outDir: gitSubDir }),
+      /Refusing to export to unsafe directory/i,
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('exportPublicRelease binds release provenance to exact Git HEAD and tracked set in production paths', () => {
+  const repo = setupSyntheticRepo();
+  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-provenance-'));
+  const outDir = path.join(parentDir, 'out');
+  try {
+    // Attempting to inject a mismatched commit SHA must fail closed
+    assert.throws(
+      () => exportPublicRelease({
+        cwd: repo.tmpDir,
+        outDir,
+        commitSha: '0000000000000000000000000000000000000000',
+      }),
+      /provenance|commit|HEAD/i,
+    );
+
+    // Attempting to inject an arbitrary trackedFiles array that does not match Git must fail closed
+    assert.throws(
+      () => exportPublicRelease({
+        cwd: repo.tmpDir,
+        outDir,
+        trackedFiles: ['arbitrary-file-not-in-git.txt'],
+      }),
+      /tracked|git/i,
+    );
+  } finally {
+    repo.cleanup();
+    try { fs.rmSync(parentDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+  }
+});
+
 
 test('auditExportDirectory refuses to audit unsafe system root, homedir, or temp root', () => {
   assert.throws(
@@ -455,21 +615,22 @@ test('exportPublicRelease refuses dirty working trees so manifest provenance can
 
 test('exportPublicRelease preserves non-ASCII tracked paths exactly', () => {
   const repo = setupSyntheticRepo();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'export-unicode-'));
+  const target = makeTempExportTarget('export-unicode-');
   try {
     const relPath = '文件/說明.md';
     fs.mkdirSync(path.join(repo.tmpDir, '文件'), { recursive: true });
     fs.writeFileSync(path.join(repo.tmpDir, relPath), '# safe unicode file\n');
     execFileSync('git', ['add', relPath], { cwd: repo.tmpDir });
     execFileSync('git', ['commit', '-m', 'add unicode file'], { cwd: repo.tmpDir });
-    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir });
+    const result = exportPublicRelease({ cwd: repo.tmpDir, outDir: target.outDir });
     assert.equal(result.success, true);
-    assert.ok(fs.existsSync(path.join(outDir, relPath)));
+    assert.ok(fs.existsSync(path.join(target.outDir, relPath)));
   } finally {
     repo.cleanup();
-    fs.rmSync(outDir, { recursive: true, force: true });
+    target.cleanup();
   }
 });
+
 
 test('exportPublicRelease removes partial output when copying throws', () => {
   const repo = setupSyntheticRepo();
