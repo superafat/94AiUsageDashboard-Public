@@ -1,0 +1,6 @@
+# Browser-rendered README screenshots generated from synthetic E2E fixture data only.
+# Any pixel change requires a fresh review and a new exact SHA-256.
+cb4ec4be6f1860aad957c92548f9000264a2c86d77df01a45f7c427346281396  docs/images/readme/dashboard-desktop.png
+d008c070c31e4f68b5f342dcf209a3fa0f02802eee9e9eb892fb639a8a869f4b  docs/images/readme/dashboard-mobile.png
+cb8c33cd31c6a7ea5d61a44468bb63e43d37eb0f305b2cbe5647380694629210  docs/images/readme/usage-history-desktop.png
+b3ebf682944bb54f8d6fc07bd2b3d46213296ad8396e5d5e5261684bd1c8c57c  docs/images/readme/provider-codex-desktop.png

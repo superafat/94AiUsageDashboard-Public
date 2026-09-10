@@ -134,14 +134,15 @@ test('reviewed PNG evidence is preserved by exact SHA-256 allowlist and fails cl
     t.skip('Skipping evidence file check in clean export directory');
     return;
   }
-  const { computeFileSha256Sync, checkBinaryFile, REVIEWED_BINARY_SHAS } = await import('../scripts/public-release-policy.mjs');
+  const { computeFileSha256Sync, checkBinaryFile, loadPrivateReleaseBaseline, REVIEWED_BINARY_SHAS } = await import('../scripts/public-release-policy.mjs');
   const expectedPngs = [
     'docs/evidence/v1.5-desktop-home.png',
     'docs/evidence/v1.5-mobile-home.png',
     'docs/evidence/v1.5-mobile-usage.png',
   ];
 
-  assert.equal(REVIEWED_BINARY_SHAS.size, 3, 'allowlist must contain exactly 3 reviewed hashes');
+  const privateBaseline = loadPrivateReleaseBaseline();
+  assert.equal(privateBaseline.reviewedBinaries.length, 3, 'private evidence baseline must still contain exactly 3 reviewed hashes');
 
   for (const png of expectedPngs) {
     assert.ok(fs.existsSync(png), `${png} must exist`);

@@ -1,94 +1,99 @@
 # 94AiUsageDashboard
 
-一個 **App-first、Self-hosted-capable、可延伸 Android / iPhone** 的 AI 額度與使用統計產品。
+> **把 Codex、Antigravity、Claude Code 的額度、Token、估算費用與同步狀態，集中在一個乾淨的 AI Usage Dashboard。**
 
-> **一般使用者先看：** [`docs/getting-started.md`](docs/getting-started.md)。若使用 AI 輔助安裝或自動化，請參閱規範合約：[`AI_INSTALL.md`](AI_INSTALL.md)。目前 Self-hosted 仍是進階安裝；未來主流分享方式是 Google Play / App Store → 登入 → 配對 Mac → 直接使用。
+**App-first · Mobile-friendly · Self-hosted-capable · Read-only by design**
 
-> **未來主要分發方式是 App-first。** 一般使用者的目標體驗是從 **Google Play / App Store** 安裝 Android／iPhone App，登入後配對自己的 Mac 就能使用，不需要理解 GitHub、Node、Firestore 或自己建立 Firebase。**Self-hosted 保留給進階使用者**與希望完全自管後端的人。
+[![Release](https://img.shields.io/github/v/release/superafat/94AiUsageDashboard-Public?label=release)](https://github.com/superafat/94AiUsageDashboard-Public/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-目前私人 **v1.5 Public-ready** 版本已完成共享 React UI／domain／client contracts、Web/PWA、歷史 Token／估算費用與 Mac Companion；預設以 **Capacitor** 作為未來 Android / iOS shell。`BackendProfile` 會把目前 Self-hosted Firebase 與未來官方 App 的最小託管後端隔離；兩種分發方式共用同一套額度邏輯與畫面，Provider 憑證在任何模式都留在使用者 Mac。**Android／iPhone 商店 App 尚未發佈。**
+<p align="center">
+  <img src="docs/images/readme/dashboard-desktop.png" alt="94AiUsageDashboard desktop dashboard" width="100%">
+</p>
 
-目前 v1.5 第一級 Provider 資料格式與畫面支援：
+94AiUsageDashboard 讓你快速看懂目前 AI 工具的**剩餘額度、重置時間、近期 Token 使用量、估算 API 等值費用與同步健康狀態**。介面以手機與桌面都好讀為目標，重要資訊先顯示，不需要先理解底層資料結構。
 
-- **Codex**
-- **Antigravity**
-- **Claude Code**
+目前公開版本：**v0.1.3**。
 
-資料由你自己的 Mac 上的 [OpenUsage](https://github.com/robinebers/openusage) 讀取，再由 Mac Companion 正規化後同步到 **你自己的 Firebase 專案**。目前額度優先使用 OpenUsage CLI；CLI 不可用時才使用固定 localhost HTTP fallback。歷史 Token／估算費用走隔離的本機 history adapter。
+## 你可以看到什麼
 
-> **只讀觀察與職責邊界**：本專案為帳號層級額度、歷史用量與重置視窗之只讀觀察儀表板。工作派工與調度由 DevControl 統一管理。Dashboard 不啟動 AI 工具、不控制 Mac、不遠端重置額度、不購買額度、不集中管理 Provider 憑證；未知或過期資料不會假造成可用餘額。所有費用皆為本機 API 等值估算，不是實際帳單。
+| 功能 | 用途 |
+| --- | --- |
+| **多 Provider 額度總覽** | 同一頁查看 Codex、Antigravity、Claude Code 的主要額度 |
+| **使用趨勢** | 查看今日、近 7 天、近 30 天 Token 使用量 |
+| **費用估算** | 在資料完整時顯示 API 等值估算費用；資料不足時明確標示累積中 |
+| **重置時間與 Reset Credits** | 顯示可觀察到的重置時間與可用 Reset Credits，維持只讀 |
+| **Freshness / Offline 狀態** | 過期、同步中斷或離線都會清楚標示，不把舊資料假裝成新資料 |
+| **PWA** | 可在手機或桌面瀏覽器使用，也可加入主畫面 |
 
-## 架構
+## 手機也能快速看
+
+<p align="center">
+  <img src="docs/images/readme/dashboard-mobile.png" alt="94AiUsageDashboard mobile dashboard" width="390">
+</p>
+
+首頁用卡片直接呈現最常看的額度與狀態；手機版保留底部導覽，方便在「首頁、使用統計、重置額度、設定」之間切換。
+
+## 使用統計
+
+<p align="center">
+  <img src="docs/images/readme/usage-history-desktop.png" alt="94AiUsageDashboard usage history" width="100%">
+</p>
+
+- 今日／近 7 天／近 30 天快速切換。
+- 顯示 Token 總量、主要使用來源與趨勢。
+- 費用只有在資料條件足夠時才計算；**估算費用不是實際帳單**。
+- 歷史資料最多保留 35 天的每日彙總。
+
+## Provider 詳細額度
+
+<p align="center">
+  <img src="docs/images/readme/provider-codex-desktop.png" alt="Codex quota details" width="100%">
+</p>
+
+Provider 詳細頁保留來源真正提供的資訊。缺少數值就省略或標示未知，**不猜值、不造假 0% / 100%**。Reset Credits 目前維持唯讀，不提供消耗按鈕。
+
+## 支援來源
+
+| Provider | 目前可顯示內容 |
+| --- | --- |
+| **Codex** | Session、Weekly、Spark 類額度、重置時間、Reset Credits、歷史用量 |
+| **Antigravity** | Gemini / non-Gemini Session 與 Weekly 額度、歷史用量 |
+| **Claude Code** | Session、Weekly，以及來源有提供時的模型／Extra Usage 類資源 |
+
+實際欄位以 OpenUsage 能穩定取得的資料為準；來源沒有提供的數值，Dashboard 不會自行推測。
+
+## 它怎麼運作
 
 ```text
 AI CLI / Desktop App
         ↓
      OpenUsage
-        ↓ 127.0.0.1 only
-  Local Agent (macOS)
-        ↓ canonical snapshot
-   Your own Firestore
-        ↓ Firebase Auth
-   Mobile-first PWA
+        ↓ local only
+ Local Agent on macOS
+        ↓ usage snapshot
+  Your own Firebase
+        ↓ Google Authentication
+      Web / PWA
 ```
 
-核心資料格式不綁死 OpenUsage、React 或 Firebase，因此未來可以增加 Android / iOS shell，而不用重寫 provider 邏輯。
+資料由 Mac 上的 **OpenUsage** 讀取，Local Agent 正規化後同步到**你自己的 Firebase**。Web / PWA 使用 **Google Authentication** 登入後，只讀取登入者自己的資料。
 
-## 隱私邊界
+Provider 憑證留在 Mac。Dashboard **不會上傳 OAuth 權杖、API key、Cookie、Prompt、Response、對話內容或原始程式碼**。
 
-Mac Companion 只同步額度快照、最多 35 天每日 Token／估算費用彙總，以及最小化裝置健康狀態。它不會同步或上傳 OAuth 權杖、API 金鑰、Cookie、對話或程式碼。完整禁止項目：
+## 快速開始
 
-- OAuth access token / refresh token
-- API key / cookie
-- Prompt / response
-- AI 對話內容
-- Codex / Claude session 原文
-- 原始程式碼或 repo 內容
-- 本機完整路徑
+一般使用者與第一次安裝建議先看 [`docs/getting-started.md`](docs/getting-started.md)。如果要讓 AI 程式碼助理協助安裝，請讓它遵循 [`AI_INSTALL.md`](AI_INSTALL.md)。
 
-Local Agent 的 Firebase refresh credential 只保存在 macOS Keychain，不寫入 `.env`、Firestore、GitHub 或一般 log；長憑證會安全分段存入 Keychain，不會塞進命令列參數。
+### 安裝需求
 
-## v1 Provider 支援
-
-### Codex
-
-顯示 OpenUsage 有提供的 Session、Weekly、Spark、Spark Weekly、credits、rate-limit reset credits 等資源。缺少的欄位直接省略，不猜成 0% 或 100%。若 OpenUsage 目前沒有從 `/v1/limits` 匯出 `gpt-reserve`，本專案也不會假造該數值；未來來源提供穩定 key 時可直接顯示。
-
-### Antigravity
-
-顯示 Gemini Session / Weekly 與 non-Gemini Session / Weekly。
-
-### Claude Code
-
-顯示 Session / Weekly，並支援 OpenUsage 提供的 Fable、Sonnet、Extra Usage 等資源。OpenUsage 可使用 Claude Code 或 Claude Desktop 的既有登入；本專案不自行讀取 Claude 憑證。
-
-## 自行部署（Self-hosted）
-
-> **AI 輔助安裝**：若由 AI 程式碼助理或自動化流程執行安裝，請依循 [`AI_INSTALL.md`](AI_INSTALL.md) 之確定性狀態機規範與安全邊界。
-
-### 1. 安裝需求
-
-- macOS 15 或更新版本（目前 Mac Companion）
+- macOS 15 或更新版本（目前 Local Agent）
 - Node.js 22 LTS
-- Java 21+（僅 Firebase Emulator 測試需要）
 - Firebase CLI
 - OpenUsage
+- Java 21+（只有 Firebase Emulator 測試需要）
 
-依官方 OpenUsage 專案的安裝說明安裝。94AiUsageDashboard **不會自動安裝 OpenUsage**、不會偷偷執行 Homebrew。Mac Companion 優先使用 OpenUsage CLI；CLI 不可用但官方 localhost API 正常時使用 HTTP fallback。
-
-### 2. 建立自己的 Firebase 專案
-
-在 Firebase Console 建立專案，然後：
-
-1. 建立 Web App。
-2. 啟用 **Google Authentication**。
-3. 建立 Cloud Firestore。
-4. 把 `127.0.0.1` 與 `localhost` 加入 Firebase Authentication 的授權網域，供 Local Agent 一次性本機登入。
-5. 記下 Web App 的公開 Firebase config。
-
-Firebase Web API key 是公開 client config，不是 Admin secret；service-account JSON 則是敏感憑證，本專案不需要它。
-
-### 3. 安裝專案
+### 下載
 
 ```bash
 git clone https://github.com/superafat/94AiUsageDashboard-Public.git
@@ -97,28 +102,23 @@ npm ci
 cp .env.example .env.local
 ```
 
-把 `.env.local` 改成你自己的 Firebase 公開 Web 設定。不要放 refresh token、service-account JSON 或其他秘密。
+在 `.env.local` 填入你自己的 Firebase Web 公開設定；不要放 refresh token、service-account JSON 或其他秘密。
 
-### 4. 套用 Firestore Security Rules
+### Firebase
 
-先用 Emulator 驗證：
+1. 建立 Firebase 專案與 Web App。
+2. 啟用 **Google Authentication**。
+3. 建立 Cloud Firestore。
+4. 設定自己的 Firebase Web config。
+5. 先驗證，再部署 **Firestore Security Rules**。
 
 ```bash
 npm run test:rules
-```
-
-正式部署 rules 前，請確認 Firebase CLI 指向你自己的 project：
-
-```bash
 firebase use YOUR_FIREBASE_PROJECT_ID
 firebase deploy --only firestore
 ```
 
-Firestore Security Rules 會拒絕未登入存取與跨 UID 讀寫，並限制 snapshot schema。
-
-### 5. Local Agent 一次設定與背景同步
-
-先檢查環境，再執行一次設定：
+### Local Agent
 
 ```bash
 npm run usage -- doctor
@@ -126,55 +126,76 @@ npm run usage -- doctor --json
 npm run usage -- setup
 ```
 
-`setup` 是**可重跑**流程：先檢查目前狀態，只執行允許的安全下一步。缺 OpenUsage 或 Self-hosted Firebase 設定時只提供精準說明，不會自動安裝第三方軟體；完成後 Mac 每 5 分鐘自動同步。
-
-Local Agent 使用和手機網站相同的 Firebase Google Authentication。瀏覽器只把短效 Google ID token 交回 `localhost`，Agent 再向 Firebase 換取正式 Firebase session；長期 refresh credential 只存入 macOS Keychain，不需要額外建立 Desktop OAuth Client，也不使用 service account。
-
-進階命令：
+`setup` 是**可重跑**流程，而且**不會自動安裝 OpenUsage**。Local Agent 會優先讀取 **OpenUsage CLI**；只有 CLI 不可用時，才使用限定在 localhost 的 **HTTP fallback**。完成後可安裝背景同步，正常情況每 5 分鐘更新一次。想立即更新可執行：
 
 ```bash
-npm run usage -- login      # 只重新登入
-npm run usage -- sync       # 立即同步一次
-npm run usage -- install    # 安裝／更新背景同步
-npm run usage -- uninstall  # 移除背景同步
-npm run usage -- doctor     # 檢查設定、登入、OpenUsage、背景同步與最後同步
+npm run usage -- sync
 ```
 
-完整解除安裝與各層生命週期清理請見 [docs/uninstall.md](docs/uninstall.md)。
-
-
-`sync` 會優先用 OpenUsage CLI 讀目前額度，必要時使用只限 localhost 的 HTTP fallback；歷史統計由本機 history adapter best-effort 讀取。資料轉成 canonical schema 後才以登入者自己的 Firebase 身分寫入 Firestore。
-
-### 6. 啟動 Web PWA
-
-本機：
+### Web / PWA
 
 ```bash
 npm run build -w apps/web
 npm run preview -w apps/web
 ```
 
-正式自行部署：
+自行部署 Hosting：
 
 ```bash
 firebase deploy --only hosting
 ```
 
-手機登入同一 Google 帳號後，就能查看 Mac 最近同步的額度。PWA 可加入 Android / iOS 主畫面。
+## 資料正確性
 
-### 登入與同步狀態
+94AiUsageDashboard 對「看起來正常但其實是舊資料」採保守策略：
 
-登入視窗遭阻擋或使用者取消時，頁面會顯示原因並允許重試；登入進行中不會重複送出請求。通訊軟體內建瀏覽器限制登入時，請以 Safari 或 Chrome 開啟同一網址。
+- 來源明確回報 stale → 顯示可能過期。
+- 背景同步超時 → 顯示可能過期。
+- 來源資料太舊 → 顯示可能過期。
+- 重新上傳舊資料 → 不會把時間洗成新資料。
+- 單一 Provider 失敗 → 不阻止其他 Provider 完成同步。
+- 缺少欄位 → 不補假值。
 
-Mac 每五分鐘同步一次。網站會分別檢查同步時間與來源取得時間：來源明確回報過期、七分鐘沒有同步，或來源資料超過十二分鐘未更新時，會標示可能過期；重新上傳舊資料不會把它變成新資料。斷網會立即顯示離線提醒。
+## 隱私與安全
 
-Hosting 部署前會自動執行 `npm run build:hosting`，強制關閉測試資料模式後重新建置，避免把瀏覽器測試產物誤上線。離線快取只保存靜態網頁，不攔截登入回呼、私人 API 或帶有查詢參數的請求。
+同步內容限制在額度快照、每日 Token／估算費用彙總與最小化裝置健康狀態。
 
-## 使用統計與估算費用
+**不會同步或上傳：**
 
-App 提供今日／近 7 天／近 30 天 Token 趨勢。每日歷史最多保留 35 天；7 天費用只有七天資料都完整時才顯示，否則顯示「費用資料累積中」，不平均、不外推。所有金額都是**估算 API 等值費用**，不是實際帳單或已扣款。
+- OAuth access / refresh token
+- API key / Cookie
+- Prompt / Response
+- AI 對話內容
+- Codex / Claude session 原文
+- 原始程式碼或 repo 內容
+- 本機完整路徑
 
-## 開發驗證
+Local Agent 的長期登入憑證保存在 macOS Keychain。Firestore Security Rules 會拒絕未登入存取與跨 UID 讀寫。
+
+完整安全說明請看 [`SECURITY.md`](SECURITY.md) 與 [`docs/privacy-model.md`](docs/privacy-model.md)。
+
+## 產品邊界
+
+這是一個**只讀 AI 使用量與額度觀察工具**。
+
+- 不啟動 AI 工具。
+- 不控制 Mac。
+- 不遠端購買或重置額度。
+- 不集中保存 Provider 憑證。
+- 不把 estimated cost 當成實際帳單。
+- 工作派工與模型調度不屬於本產品；若搭配其他系統，應由獨立的 **DevControl** 負責。
+
+## App-first 路線
+
+目前 Web / PWA 已可使用。後續方向是讓同一套 UI 與 domain logic 延伸成 Android / iPhone App，而不是維護兩套獨立產品。
+
+未來一般使用者的目標流程是從 **Google Play / App Store** 安裝 App，再配對自己的 Mac。原生外殼預設採 **Capacitor**；`BackendProfile` 用來隔離目前 Self-hosted 後端與未來 official-app 後端，避免把兩種模式的設定混在一起。
+
+> Android / iPhone 商店版目前**尚未發布**。**Self-hosted 是進階使用方式**，也是現在可實際使用的公開部署方式。
+
+## 驗證
+
+專案提供完整的本機與公開發布驗證：
 
 ```bash
 npm run lint
@@ -184,24 +205,23 @@ npm run test:rules
 npm run test:acceptance
 npm run build
 npm run test:e2e
+npm run verify:public-release
 ```
 
-E2E 使用手機尺寸瀏覽器，驗證 Codex、Antigravity、Claude Code、多 Provider UI、只讀 reset credits、stale 狀態、離線 shell 與水平溢位。
+公開發布會經過 Secret scan、Git 歷史稽核、乾淨匯出、Firestore Rules、acceptance、Browser E2E 與 production dependency audit。
 
-## 安全與限制
+## 文件
 
-- Web client 沒有 snapshot 寫入 UI。
-- v1 不提供遠端 Mac 控制或 reset-credit claim。
-- 跨 Firebase UID 存取由 Firestore Rules 強制拒絕。
-- 同一 UID 自製惡意 client 理論上可以偽造自己的 snapshot；它只能污染自己的 self-hosted 資料。若未來需要更強完整性，可增加 server ingest / device attestation 模式。
-- OpenUsage 掛掉時，最後成功資料應保留；來源回報 stale，或 Mac 超過正常背景同步心跳仍未成功更新時，網站才標示 stale，不得變成假 0 / 100。
+- [Getting Started](docs/getting-started.md)
+- [AI-assisted Install](AI_INSTALL.md)
+- [macOS Install](docs/install-macos.md)
+- [Privacy Model](docs/privacy-model.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Uninstall](docs/uninstall.md)
+- [Security](SECURITY.md)
 
-## 開源與發布方式
+## 開源
 
-94AiUsageDashboard v0.1.3（先前版本 v0.1.2 維持不可變紀錄）採 **MIT License**。完整私人開發歷史不公開；正式公開版本只會由通過安全檢查的乾淨匯出建立，避免把本機路徑、內部規劃、測試證據或其他私人開發痕跡帶進公開 Git 歷史。
+公開倉庫：[`superafat/94AiUsageDashboard-Public`](https://github.com/superafat/94AiUsageDashboard-Public)
 
-公開發布倉庫為 `superafat/94AiUsageDashboard-Public`。公開使用者以 Self-hosted 模式部署自己的 Firebase，Provider 憑證保留在自己的 Mac。Android／iPhone 商店版本仍屬未來階段，不在 v0.1.3 範圍。
-
-## License
-
-本專案採用 **MIT License**，條款請見 `LICENSE`。第三方授權資訊請見 `THIRD_PARTY_NOTICES.md`，安全回報方式請見 `SECURITY.md`，貢獻流程請見 `CONTRIBUTING.md`。
+94AiUsageDashboard 採用 **MIT License**。第三方授權資訊請見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)，貢獻方式請見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

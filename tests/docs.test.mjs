@@ -15,15 +15,23 @@ test('README documents the complete self-hosted v1 path', () => {
 test('README makes production boundaries explicit', () => {
   assert.match(readme, /不會.*上傳.*權杖|不會.*同步.*權杖/);
   assert.match(readme, /自己的 Firebase|your own Firebase/i);
-  assert.match(readme, /完整私人開發歷史不公開/);
-  assert.match(readme, /乾淨匯出/);
+  assert.match(readme, /憑證.*Mac|Mac.*憑證/);
+  assert.match(readme, /安全|隱私/);
   assert.match(readme, /94AiUsageDashboard-Public/);
 });
 
-test('README describes v1.5 as the current private public-ready build rather than work-in-progress', () => {
-  assert.match(readme, /v1\.5.*Public-ready/i);
-  assert.doesNotMatch(readme, /v1\.5.*正在/);
-  assert.match(readme, /App-first/);
+test('README is product-first, avoids private-version noise, and showcases real browser screenshots', () => {
+  assert.doesNotMatch(readme, /目前私人|v1\.5.*Public-ready|完整私人開發歷史/i);
+  assert.match(readme, /v0\.1\.3/i);
+  assert.match(readme, /App-first/i);
+  for (const image of [
+    'dashboard-desktop.png',
+    'dashboard-mobile.png',
+    'usage-history-desktop.png',
+    'provider-codex-desktop.png',
+  ]) {
+    assert.match(readme, new RegExp(`docs/images/readme/${image.replace('.', '\\.')}`));
+  }
 });
 
 test('AGENTS.md exists and defines lean-role boundaries and telemetry truth', () => {
