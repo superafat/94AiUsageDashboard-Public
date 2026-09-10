@@ -61,7 +61,25 @@ export function loadPrivateReleaseBaseline(baselinePath = PRIVATE_RELEASE_BASELI
 
 
 const PRIVATE_RELEASE_BASELINE = loadPrivateReleaseBaseline();
-export const REVIEWED_BINARY_SHAS = new Set(PRIVATE_RELEASE_BASELINE.reviewedBinaries);
+export const PUBLIC_REVIEWED_BINARIES_PATH = path.resolve(MODULE_DIR, '../docs/readme-screenshots.sha256');
+
+export function loadPublicReviewedBinaryShas(manifestPath = PUBLIC_REVIEWED_BINARIES_PATH) {
+  if (!fs.existsSync(manifestPath)) return [];
+  const shas = [];
+  for (const rawLine of fs.readFileSync(manifestPath, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const match = line.match(/^([0-9a-f]{64})\s{2}(docs\/images\/readme\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp))$/i);
+    if (!match) throw new Error('Public reviewed-binary manifest contains an invalid entry');
+    shas.push(match[1].toLowerCase());
+  }
+  return shas;
+}
+
+export const REVIEWED_BINARY_SHAS = new Set([
+  ...PRIVATE_RELEASE_BASELINE.reviewedBinaries,
+  ...loadPublicReviewedBinaryShas(),
+]);
 
 export function computeSha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');

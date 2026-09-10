@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { auditPublicTree, auditGitHistory } from '../scripts/audit-public-release.mjs';
-import { computeSha256 } from '../scripts/public-release-policy.mjs';
+import { computeFileSha256Sync, computeSha256, REVIEWED_BINARY_SHAS } from '../scripts/public-release-policy.mjs';
 
 function setupSyntheticRepo() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-test-repo-'));
@@ -58,6 +59,21 @@ function setupSyntheticRepo() {
     },
   };
 }
+
+
+test('README browser screenshots are exact-hash reviewed public binaries', () => {
+  for (const name of [
+    'dashboard-desktop.png',
+    'dashboard-mobile.png',
+    'usage-history-desktop.png',
+    'provider-codex-desktop.png',
+  ]) {
+    const file = new URL(`../docs/images/readme/${name}`, import.meta.url);
+    assert.ok(fs.existsSync(file), `missing README screenshot ${name}`);
+    const hash = computeFileSha256Sync(fileURLToPath(file));
+    assert.ok(REVIEWED_BINARY_SHAS.has(hash), `README screenshot ${name} must be exact-hash reviewed`);
+  }
+});
 
 test('auditPublicTree detects candidate violations in tree and skips deleted files', () => {
   const repo = setupSyntheticRepo();
