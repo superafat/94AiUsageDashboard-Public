@@ -1,5 +1,5 @@
 import type { AppLocation } from '@94ai/client';
-import { resolveResetCredits, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { PROVIDER_CATALOG, resolveResetCredits, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
 import { ProviderSummaryCard } from '../components/ProviderSummaryCard';
 import { UsageSummaryCard } from '../components/UsageSummaryCard';
 import { providerFamily, providerSort } from '../provider-display';
@@ -14,15 +14,19 @@ export interface DashboardScreenProps {
   readError?: string | undefined;
   hasStale?: boolean;
   onNavigate: (location: AppLocation) => void;
+  isFamilyEnabled?: (family: string) => boolean;
 }
 
-export function DashboardScreen({ userName, items, historyItems, now, offline, loading, readError, hasStale, onNavigate }: DashboardScreenProps) {
-  const providers = [...items].filter((item) => providerFamily(item.providerId) !== 'other').sort(providerSort);
+export function DashboardScreen({ userName, items, historyItems, now, offline, loading, readError, hasStale, onNavigate, isFamilyEnabled }: DashboardScreenProps) {
+  const isEnabled = isFamilyEnabled ?? ((family: string) => ['codex', 'antigravity', 'claude'].includes(family));
+  const providers = [...items].filter((item) => isEnabled(providerFamily(item.providerId))).sort(providerSort);
   const codex = providers.find((item) => providerFamily(item.providerId) === 'codex');
   const reset = codex?.resources.rateLimitResets;
   const resolvedReset = resolveResetCredits(reset, now);
   const resetCount = resolvedReset.availableCount;
-  const expected = [{ id: 'codex', label: 'Codex' }, { id: 'antigravity', label: 'Antigravity' }, { id: 'claude', label: 'Claude Code' }];
+  const expected = PROVIDER_CATALOG
+    .filter((entry) => isEnabled(entry.family))
+    .map((entry) => ({ id: entry.family, label: entry.name }));
   const missing = expected.filter((entry) => !providers.some((item) => providerFamily(item.providerId) === entry.id));
   const latest = items.reduce<string | undefined>((value, item) => !value || item.syncedAt > value ? item.syncedAt : value, undefined);
   const initial = userName.trim().slice(0, 1).toUpperCase() || 'AI';

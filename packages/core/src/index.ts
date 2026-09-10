@@ -4,3 +4,4 @@ export * from './history';
 export * from './device-health';
 export * from './freshness';
 export * from './diagnostics';
+export * from './preferences';

@@ -21,3 +21,7 @@ export function historyChunkPath(uid: string, deviceId: string, providerId: stri
   if (!/^[0-6]$/.test(chunkId)) throw new Error('history chunk must be between 0 and 6');
   return `${historyDocPath(uid, deviceId, providerId)}/historyChunks/${chunkId}`;
 }
+
+export function preferenceDocPath(uid: string, family: string): string {
+  return `users/${pathSegment(uid, 'uid')}/preferences/${pathSegment(family, 'family')}`;
+}

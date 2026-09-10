@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseUsageSnapshot, type DeviceHealthSnapshot, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
-import { readUsageHistoryRest, writeDeviceHealthRest, writeUsageHistoryRest, writeUsageSnapshotRest } from '@94ai/firebase';
+import { parseProviderPreference, parseUsageSnapshot, providerFamilyOf, resolveFamilyEnabled, type DeviceHealthSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { readProviderPreferencesRest, readUsageHistoryRest, writeDeviceHealthRest, writeUsageHistoryRest, writeUsageSnapshotRest } from '@94ai/firebase';
 import { normalizeOpenUsageLimits, readLegacyUsageHistory, type ProviderHistoryInput } from '@94ai/openusage';
 import { createAuthenticatedFirebaseContext, type AgentAuthConfig, type AuthenticatedFirebaseContext } from './auth';
 import { MacOSKeychainCredentialStore, type CredentialStore } from './credential-store';
@@ -81,6 +81,7 @@ export interface SyncDependencies {
   getAuthContext: (signal?: AbortSignal) => Promise<AuthenticatedFirebaseContext>;
   fetchLimits: (signal?: AbortSignal) => Promise<unknown>;
   writeSnapshot: (auth: AuthenticatedFirebaseContext, snapshot: UsageSnapshot, signal?: AbortSignal) => Promise<void>;
+  fetchPreferences?: (auth: AuthenticatedFirebaseContext, signal?: AbortSignal) => Promise<ProviderPreference[]>;
   fetchHistory?: (signal?: AbortSignal) => Promise<ProviderHistoryInput[]>;
   readHistory?: (auth: AuthenticatedFirebaseContext, providerId: string, deviceId: string, signal?: AbortSignal) => Promise<UsageHistorySnapshot | undefined>;
   writeHistory?: (auth: AuthenticatedFirebaseContext, snapshot: UsageHistorySnapshot, signal?: AbortSignal) => Promise<void>;
@@ -95,8 +96,16 @@ export interface SyncResult {
   syncedAt: string;
   historyErrorCode?: 'history_source_unavailable' | 'history_write_failed';
   providerErrorCode?: 'provider_write_failed';
+  preferenceErrorCode?: 'preferences_read_failed';
   failedProviders?: string[];
   partialFailure?: boolean;
+}
+
+export function formatSyncStatus(result: SyncResult): string {
+  if (result.preferenceErrorCode) return '未同步：資料來源設定讀取失敗；保留既有資料，待下次重試。';
+  const summary = `${result.providerCount} 個額度來源，${result.historyProviderCount} 個歷史來源，${result.syncedAt}`;
+  if (result.partialFailure || result.providerErrorCode || result.historyErrorCode) return `同步部分完成：${summary}`;
+  return `同步完成：${summary}`;
 }
 
 export async function runSyncWithDependencies(deps: SyncDependencies): Promise<SyncResult> {
@@ -105,14 +114,69 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
   try {
     const deviceId = await withTimeout((signal) => deps.getDeviceId(signal), timeoutMs, 'getDeviceId');
     const syncedAt = deps.now().toISOString();
+
+    let activePreferences: ProviderPreference[] | undefined;
+    let preferenceErrorCode: SyncResult['preferenceErrorCode'];
+
+    if (deps.fetchPreferences) {
+      try {
+        const fetched = await withTimeout((signal) => deps.fetchPreferences!(auth, signal), timeoutMs, 'fetchPreferences');
+        if (!Array.isArray(fetched)) {
+          throw new Error('fetchPreferences must return an array');
+        }
+        for (const p of fetched) {
+          const parsed = parseProviderPreference(p);
+          if (parsed.userId !== auth.uid) {
+            throw new Error(`preference UID mismatch: ${parsed.userId} !== ${auth.uid}`);
+          }
+        }
+        activePreferences = fetched;
+      } catch {
+        preferenceErrorCode = 'preferences_read_failed';
+      }
+    } else {
+      activePreferences = [];
+    }
+
+    if (preferenceErrorCode) {
+      return {
+        providerCount: 0,
+        historyProviderCount: 0,
+        syncedAt,
+        preferenceErrorCode,
+        partialFailure: true,
+      };
+    }
+
+    const preferencesMap: Record<string, boolean> = {};
+    for (const p of activePreferences ?? []) {
+      const parsed = parseProviderPreference(p);
+      if (parsed.userId !== auth.uid) {
+        return {
+          providerCount: 0,
+          historyProviderCount: 0,
+          syncedAt,
+          preferenceErrorCode: 'preferences_read_failed',
+          partialFailure: true,
+        };
+      }
+      preferencesMap[parsed.family] = parsed.enabled;
+    }
+
     const raw = await withTimeout((signal) => deps.fetchLimits(signal), timeoutMs, 'fetchLimits');
     const snapshots = normalizeOpenUsageLimits(raw, { userId: auth.uid, deviceId, syncedAt });
+    const eligibleSnapshots = deps.fetchPreferences
+      ? snapshots.filter((snapshot) => {
+          const family = providerFamilyOf(snapshot.providerId);
+          return resolveFamilyEnabled(family, preferencesMap);
+        })
+      : snapshots;
 
     let providerSuccessCount = 0;
     const failedProviders: string[] = [];
     const successfulSnapshots: UsageSnapshot[] = [];
 
-    for (const snapshot of snapshots) {
+    for (const snapshot of eligibleSnapshots) {
       try {
         const safe = parseUsageSnapshot(JSON.parse(serializeSafeSnapshot(snapshot)) as unknown);
         await withTimeout((signal) => deps.writeSnapshot(auth, safe, signal), timeoutMs, `writeSnapshot(${snapshot.providerId})`);
@@ -128,7 +192,13 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
     if (deps.fetchHistory && deps.readHistory && deps.writeHistory) {
       try {
         const incoming = await withTimeout((signal) => deps.fetchHistory!(signal), timeoutMs, 'fetchHistory');
-        for (const provider of incoming) {
+        const eligibleHistory = deps.fetchPreferences
+          ? incoming.filter((provider) => {
+              const family = providerFamilyOf(provider.providerId);
+              return resolveFamilyEnabled(family, preferencesMap);
+            })
+          : incoming;
+        for (const provider of eligibleHistory) {
           try {
             const next = buildHistorySnapshot(provider, { userId: auth.uid, deviceId, syncedAt });
             const previous = await withTimeout((signal) => deps.readHistory!(auth, provider.providerId, deviceId, signal), timeoutMs, `readHistory(${provider.providerId})`);
@@ -198,6 +268,7 @@ export async function runSync(
     getDeviceId: () => getOrCreateDeviceId(),
     getAuthContext: () => createAuthenticatedFirebaseContext(config, store),
     fetchLimits: () => readPreferredLimits(),
+    fetchPreferences: (auth, signal) => readProviderPreferencesRest(config.firebase.projectId, auth.idToken, auth.uid, fetch, signal),
     writeSnapshot: (auth, snapshot, signal) => writeUsageSnapshotRest(config.firebase.projectId, auth.idToken, snapshot, fetch, signal),
     fetchHistory: () => readLegacyUsageHistory(),
     readHistory: (auth, providerId, deviceId, signal) => readUsageHistoryRest(config.firebase.projectId, auth.idToken, auth.uid, deviceId, providerId, fetch, signal),

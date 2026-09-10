@@ -1,4 +1,4 @@
-import type { UsageHistorySnapshot, UsageSnapshot } from '@94ai/core';
+import type { ProviderPreference, UsageHistorySnapshot, UsageSnapshot } from '@94ai/core';
 
 export interface AppUser { uid: string; displayName?: string }
 export type BackendProfile =
@@ -26,6 +26,11 @@ export interface UsageRepository {
 
 export interface UsageHistoryRepository {
   subscribe(uid: string, onValue: (items: UsageHistorySnapshot[]) => void, onError: (error: Error) => void): () => void;
+}
+
+export interface ProviderPreferencesRepository {
+  subscribe(uid: string, onValue: (items: ProviderPreference[]) => void, onError: (error: Error) => void): () => void;
+  setPreference(uid: string, family: string, enabled: boolean): Promise<void>;
 }
 
 export interface ConnectivityClient {
@@ -60,6 +65,7 @@ export interface AppClientServices {
   auth: AuthClient;
   usage: UsageRepository;
   history: UsageHistoryRepository;
+  preferences?: ProviderPreferencesRepository;
   connectivity: ConnectivityClient;
   clock: ClockClient;
   navigation: NavigationClient;

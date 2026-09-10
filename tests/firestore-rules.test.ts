@@ -116,4 +116,66 @@ describe('Firestore usage snapshot rules', () => {
     }
   });
 
+  it('isolates owner provider preferences and enforces bounded schema and identity', async () => {
+    const prefPath = (uid: string, family: string) => `users/${uid}/preferences/${family}`;
+    const validPreference = (uid: string, family: string) => ({
+      schemaVersion: 1,
+      userId: uid,
+      family,
+      enabled: true,
+      updatedAt: '2026-09-10T10:00:00.000Z',
+    });
+
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    const anon = env.unauthenticatedContext().firestore();
+
+    // Rejects unauthenticated read and write
+    await assertFails(getDoc(doc(anon, prefPath('alice', 'cursor'))));
+    await assertFails(setDoc(doc(anon, prefPath('alice', 'cursor')), validPreference('alice', 'cursor')));
+
+    // Allows owner write and read
+    await assertSucceeds(setDoc(doc(alice, prefPath('alice', 'cursor')), validPreference('alice', 'cursor')));
+    await assertSucceeds(getDoc(doc(alice, prefPath('alice', 'cursor'))));
+
+    // Allows reserved notification fields
+    await assertSucceeds(setDoc(doc(alice, prefPath('alice', 'claude')), {
+      ...validPreference('alice', 'claude'),
+      notifications: { lowQuota: false, reset: false },
+    }));
+
+    // Rejects cross-UID access
+    await assertFails(getDoc(doc(bob, prefPath('alice', 'cursor'))));
+    await assertFails(setDoc(doc(bob, prefPath('alice', 'cursor')), validPreference('alice', 'cursor')));
+    await assertFails(setDoc(doc(bob, prefPath('alice', 'cursor')), validPreference('bob', 'cursor')));
+
+    // Rejects unexpected fields or non-boolean enabled
+    await assertFails(setDoc(doc(alice, prefPath('alice', 'codex')), {
+      ...validPreference('alice', 'codex'),
+      token: 'not-a-real-value',
+    }));
+    await assertFails(setDoc(doc(alice, prefPath('alice', 'codex')), {
+      ...validPreference('alice', 'codex'),
+      enabled: 'true',
+    }));
+    await assertFails(setDoc(doc(alice, prefPath('alice', 'codex')), {
+      ...validPreference('alice', 'codex'),
+      family: 'wrong-family',
+    }));
+    await assertFails(setDoc(doc(alice, prefPath('alice', 'unknown-family')), validPreference('alice', 'unknown-family')));
+  });
+});
+
+it('rejects oversized preference timestamps and preserves notification fields on source-only changes', async () => {
+  const alice = env.authenticatedContext('preference-lifecycle').firestore();
+  const ref = doc(alice, 'users/preference-lifecycle/preferences/codex');
+  const preference = {schemaVersion: 1, userId: 'preference-lifecycle', family: 'codex', enabled: true, updatedAt: '2026-09-10T00:00:00.000Z'};
+  for (const updatedAt of ['x'.repeat(100), 'x', '2026-02-30T00:00:00Z', '2026-09-10T99:00:00Z']) {
+    await assertFails(setDoc(ref, {...preference, updatedAt}));
+  }
+  await assertSucceeds(setDoc(ref, {...preference, updatedAt: '2024-02-29T23:59:59.123Z'}));
+  await assertSucceeds(setDoc(ref, {...preference, notifications: {lowQuota: true, reset: true}}));
+  await assertSucceeds(setDoc(ref, {...preference, enabled: false}, {merge: true}));
+  const actual = (await getDoc(ref)).data();
+  if (actual?.enabled !== false || actual.notifications?.lowQuota !== true || actual.notifications?.reset !== true) throw new Error('source-only update erased notifications');
 });

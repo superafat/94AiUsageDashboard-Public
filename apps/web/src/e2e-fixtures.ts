@@ -1,5 +1,5 @@
 import type { AppClientServices } from '@94ai/client';
-import type { UsageHistorySnapshot, UsageSnapshot } from '@94ai/core';
+import { parseProviderPreference, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
 import { createBrowserConnectivity, createBrowserNavigation } from './platform';
 
 const baseTime = '2026-09-05T10:00:05.000Z';
@@ -55,6 +55,13 @@ function histories(): UsageHistorySnapshot[] {
 }
 
 export function createE2EServices(fixture: string | null): AppClientServices {
+  // Synthetic browser acceptance state only; production uses the authenticated repository.
+  const preferenceKey = 'e2e-provider-preferences';
+  const listeners = new Set<(items: ProviderPreference[]) => void>();
+  const readPreferences = (): ProviderPreference[] => {
+    const value = sessionStorage.getItem(preferenceKey);
+    return value ? (JSON.parse(value) as unknown[]).map(parseProviderPreference) : [];
+  };
   return {
     backendProfile: { mode: 'self-hosted', label: 'E2E Firebase' },
     auth: {
@@ -64,6 +71,21 @@ export function createE2EServices(fixture: string | null): AppClientServices {
     },
     usage: { subscribe: (_uid, onValue) => { queueMicrotask(() => onValue(snapshots(fixture === 'stale'))); return () => undefined; } },
     history: { subscribe: (_uid, onValue) => { queueMicrotask(() => onValue(histories())); return () => undefined; } },
+    preferences: {
+      subscribe: (_uid, onValue) => {
+        listeners.add(onValue);
+        queueMicrotask(() => { if (listeners.has(onValue)) onValue(readPreferences()); });
+        return () => { listeners.delete(onValue); };
+      },
+      setPreference: async (uid, family, enabled) => {
+        const previous = readPreferences();
+        const current = previous.find((item) => item.family === family);
+        const next = previous.filter((item) => item.family !== family);
+        next.push(parseProviderPreference({...current, schemaVersion: 1, userId: uid, family, enabled, updatedAt: baseTime}));
+        sessionStorage.setItem(preferenceKey, JSON.stringify(next));
+        for (const notify of listeners) notify(next);
+      },
+    },
     connectivity: createBrowserConnectivity(),
     clock: { now: () => Date.parse('2026-09-05T10:00:10.000Z'), every: () => () => undefined },
     navigation: createBrowserNavigation(),

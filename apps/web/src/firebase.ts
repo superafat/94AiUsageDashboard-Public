@@ -1,8 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { parseFirebaseConfig, signInWithGoogle, signOutUser, subscribeUsageHistory, subscribeUsageSnapshots } from '@94ai/firebase';
-import { AuthClientError, type AuthClient, type UsageHistoryRepository, type UsageRepository } from '@94ai/client';
+import { parseFirebaseConfig, signInWithGoogle, signOutUser, subscribeProviderPreferences, subscribeUsageHistory, subscribeUsageSnapshots, writeProviderPreference } from '@94ai/firebase';
+import { AuthClientError, type AuthClient, type ProviderPreferencesRepository, type UsageHistoryRepository, type UsageRepository } from '@94ai/client';
 
 export function normalizeFirebaseAuthError(error: unknown): AuthClientError {
   const rawCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
@@ -23,7 +23,7 @@ export function normalizeFirebaseAuthError(error: unknown): AuthClientError {
   }
 }
 
-export function createFirebaseClients(): { auth: AuthClient; usage: UsageRepository; history: UsageHistoryRepository } {
+export function createFirebaseClients(): { auth: AuthClient; usage: UsageRepository; history: UsageHistoryRepository; preferences: ProviderPreferencesRepository } {
   const app = initializeApp(parseFirebaseConfig({
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -49,6 +49,18 @@ export function createFirebaseClients(): { auth: AuthClient; usage: UsageReposit
     },
     history: {
       subscribe: (uid, onValue, onError) => subscribeUsageHistory(db, uid, onValue, onError),
+    },
+    preferences: {
+      subscribe: (uid, onValue, onError) => subscribeProviderPreferences(db, uid, onValue, onError),
+      setPreference: async (uid, family, enabled) => {
+        await writeProviderPreference(db, uid, {
+          schemaVersion: 1,
+          userId: uid,
+          family,
+          enabled,
+          updatedAt: new Date().toISOString(),
+        });
+      },
     },
   };
 }

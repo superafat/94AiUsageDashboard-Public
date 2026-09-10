@@ -426,4 +426,74 @@ describe('App', () => {
     expect(screen.getByText('device-beta')).toBeInTheDocument();
     expect(screen.queryByText('Alpha Plan')).not.toBeInTheDocument();
   });
+
+  it('filters disabled provider families across dashboard, detail, and resets', async () => {
+    let prefCallback: ((items: import('@94ai/core').ProviderPreference[]) => void) | undefined;
+    const fake = fakeServices();
+    fake.services.preferences = {
+      subscribe: (_uid, onValue) => { prefCallback = onValue; return () => undefined; },
+      setPreference: async () => undefined,
+    };
+    render(<AppRoot services={fake.services} />);
+    fake.auth({ uid: 'alice' });
+
+    const codex1: UsageSnapshot = { ...base, providerId: 'codex' };
+    const claude1: UsageSnapshot = { ...base, providerId: 'claude', resources: { session: { kind: 'consumption', unit: 'percent', remaining: 80 } } };
+    fake.usage([codex1, claude1]);
+
+    // Initially loading state preserves safety without premature default-on
+    expect(screen.getByText('正在載入偏好設定…')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Codex 額度' })).not.toBeInTheDocument();
+
+    // Preferences load completes (empty preferences -> current three enabled)
+    act(() => {
+      prefCallback!([]);
+    });
+
+    // Both codex and claude are now enabled
+    expect(screen.getByRole('region', { name: 'Codex 額度' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Claude Code 額度' })).toBeInTheDocument();
+
+    // Disable codex via preferences
+    act(() => {
+      prefCallback!([
+        { schemaVersion: 1, userId: 'alice', family: 'codex', enabled: false, updatedAt: '2026-09-10T10:00:00Z' },
+      ]);
+    });
+
+    // Codex is now filtered out of the Dashboard
+    expect(screen.queryByRole('region', { name: 'Codex 額度' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Claude Code 額度' })).toBeInTheDocument();
+
+    // Reset credits screen also excludes disabled codex
+    fake.navigate({ route: 'resets' });
+    expect(screen.queryByText('Codex')).not.toBeInTheDocument();
+
+    // Provider detail screen for disabled codex shows not found
+    fake.navigate({ route: 'provider', providerId: 'codex' });
+    expect(screen.getByText('找不到這個資料來源')).toBeInTheDocument();
+  });
+
+  it('shows not connected rather than invented quota when enabled provider lacks observations', () => {
+    let prefCallback: ((items: import('@94ai/core').ProviderPreference[]) => void) | undefined;
+    const fake = fakeServices();
+    fake.services.preferences = {
+      subscribe: (_uid, onValue) => { prefCallback = onValue; return () => undefined; },
+      setPreference: async () => undefined,
+    };
+    render(<AppRoot services={fake.services} />);
+    fake.auth({ uid: 'alice' });
+    fake.usage([base]); // only codex observed
+
+    // Enable cursor in preferences
+    act(() => {
+      prefCallback!([
+        { schemaVersion: 1, userId: 'alice', family: 'cursor', enabled: true, updatedAt: '2026-09-10T10:00:00Z' },
+      ]);
+    });
+
+    // Cursor is enabled but has no snapshots, so it must show missing/not-connected, never invented quota
+    expect(screen.getByRole('region', { name: 'Cursor 尚未連接' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Cursor 額度' })).not.toBeInTheDocument();
+  });
 });

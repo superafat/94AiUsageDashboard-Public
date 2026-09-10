@@ -1,4 +1,4 @@
-import { parseUsageSnapshot, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { KNOWN_PROVIDER_FAMILIES, parseProviderPreference, parseUsageSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
 import { historyDocPath, historyChunkPath, usageDocPath } from './paths';
 import { assembleUsageHistory, parseHistorySummary, splitHistoryForStorage, HISTORY_MAX_CHUNKS } from './history-storage';
 
@@ -183,6 +183,79 @@ export async function readUsageHistoryRest(
     const page = await chunksResponse.json() as { documents?: Array<{ fields?: Record<string, FirestoreValue> }>; nextPageToken?: string };
     if (page.nextPageToken) throw new Error('history chunks exceed bounds');
     return assembleUsageHistory(summary, (page.documents ?? []).map(d => decodeMap(d.fields ?? {})));
+  } finally {
+    cleanup();
+  }
+}
+
+export async function readProviderPreferencesRest(
+  projectId: string,
+  idToken: string,
+  uid: string,
+  fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
+): Promise<ProviderPreference[]> {
+  const url = restDocumentUrl(projectId, `users/${encodeURIComponent(uid)}/preferences`);
+  const { signal: effectiveSignal, cleanup } = composeSignal(signal);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      signal: effectiveSignal,
+      headers: {
+        authorization: `Bearer ${idToken}`,
+        accept: 'application/json',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Firestore preferences read failed (${response.status})`);
+    }
+    const payload = (await response.json()) as {
+      documents?: Array<{
+        name?: string;
+        fields?: Record<string, FirestoreValue>;
+      }>;
+      nextPageToken?: string;
+    };
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some((key) => !['documents', 'nextPageToken'].includes(key))) {
+      throw new Error('invalid Firestore preferences payload');
+    }
+    if (payload.nextPageToken !== undefined && (typeof payload.nextPageToken !== 'string' || payload.nextPageToken.length > 0)) {
+      throw new Error('preferences response incomplete or exceeds bounds');
+    }
+    const docs = Object.hasOwn(payload, 'documents') ? payload.documents : [];
+    if (!Array.isArray(docs)) {
+      throw new Error('invalid Firestore preferences documents');
+    }
+    if (docs.length > KNOWN_PROVIDER_FAMILIES.length) {
+      throw new Error('preferences collection exceeds known families bound');
+    }
+
+    const expectedPrefix = `projects/${projectId}/databases/(default)/documents/users/${uid}/preferences/`;
+    const seenFamilies = new Set<string>();
+    const preferences: ProviderPreference[] = [];
+
+    for (const doc of docs) {
+      if (!doc || typeof doc !== 'object' || !doc.fields || typeof doc.fields !== 'object') {
+        throw new Error('invalid Firestore preference document structure');
+      }
+      if (typeof doc.name !== 'string' || !doc.name.startsWith(expectedPrefix)) {
+        throw new Error('preference document resource name mismatch');
+      }
+      const docFamily = doc.name.slice(expectedPrefix.length);
+      const parsed = parseProviderPreference(decodeMap(doc.fields));
+      if (parsed.userId !== uid) {
+        throw new Error('preference UID does not match requested UID');
+      }
+      if (parsed.family !== docFamily) {
+        throw new Error('preference document ID does not match family');
+      }
+      if (seenFamilies.has(parsed.family)) {
+        throw new Error(`duplicate preference family: ${parsed.family}`);
+      }
+      seenFamilies.add(parsed.family);
+      preferences.push(parsed);
+    }
+    return preferences;
   } finally {
     cleanup();
   }
