@@ -34,6 +34,64 @@ describe('doctor', () => {
     expect(stale.checks.sync.code).toBe('sync_stale');
   });
 
+  it('rejects future-dated and zero-provider sync as healthy', async () => {
+    const base = {
+      platform: () => 'darwin',
+      engineHealth: async () => ({ state: 'ready' as const, detailCode: 'cli_ready' }),
+      backendConfigReady: () => true,
+      authReady: async () => true,
+      backgroundReady: async () => true,
+    };
+    // Future-dated sync must reject time inconsistency and not be ready
+    const futureDated = await runDoctorWithDependencies({
+      ...base,
+      lastSync: async () => ({ providerCount: 3, syncedAt: '2026-09-06T12:00:00.000Z' }),
+      now: () => new Date('2026-09-06T10:00:00.000Z'),
+    });
+    expect(futureDated.overall).toBe('warning');
+    expect(futureDated.checks.sync.code).toBe('sync_future_inconsistent');
+
+    // Even a small future skew must not be called ready.
+    const nearFuture = await runDoctorWithDependencies({
+      ...base,
+      lastSync: async () => ({ providerCount: 3, syncedAt: '2026-09-06T10:00:30.000Z' }),
+      now: () => new Date('2026-09-06T10:00:00.000Z'),
+    });
+    expect(nearFuture.overall).toBe('warning');
+    expect(nearFuture.checks.sync.code).toBe('sync_future_inconsistent');
+
+    // Zero-provider sync must reject zero providers and not be ready
+    const zeroProviders = await runDoctorWithDependencies({
+      ...base,
+      lastSync: async () => ({ providerCount: 0, syncedAt: '2026-09-06T10:00:00.000Z' }),
+      now: () => new Date('2026-09-06T10:02:00.000Z'),
+    });
+    expect(zeroProviders.overall).toBe('warning');
+    expect(zeroProviders.checks.sync.code).toBe('sync_zero_providers');
+
+    // Future-dated with zero providers must reject as warning
+    const futureZero = await runDoctorWithDependencies({
+      ...base,
+      lastSync: async () => ({ providerCount: 0, syncedAt: '2026-09-06T12:00:00.000Z' }),
+      now: () => new Date('2026-09-06T10:00:00.000Z'),
+    });
+    expect(futureZero.overall).toBe('warning');
+
+    // Partial sync failure
+    const partial = await runDoctorWithDependencies({
+      ...base,
+      lastSync: async () => ({
+        providerCount: 2,
+        syncedAt: '2026-09-06T10:00:00.000Z',
+        partialFailure: true,
+        failedProviders: ['claude'],
+      }),
+      now: () => new Date('2026-09-06T10:02:00.000Z'),
+    });
+    expect(partial.overall).toBe('warning');
+    expect(partial.checks.sync.code).toBe('sync_partial');
+  });
+
   it('formats a short human checklist without internal stack text', async () => {
     const report = await runDoctorWithDependencies({
       platform: () => 'darwin', engineHealth: async () => ({ state: 'ready', detailCode: 'http_reachable' }), backendConfigReady: () => true,

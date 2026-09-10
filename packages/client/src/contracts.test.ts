@@ -10,7 +10,8 @@ describe('app-ready client contracts', () => {
     expect(profiles.map((item) => item.mode)).toEqual(['self-hosted', 'official-app']);
     const compileOnly = (services: AppClientServices) => services.backendProfile.mode;
     expect(typeof compileOnly).toBe('function');
-    const location: AppLocation = { route: 'provider', providerId: 'codex' };
+    const location: AppLocation = { route: 'provider', providerId: 'codex', deviceId: 'mac-mini-m4' };
     expect(location.providerId).toBe('codex');
+    expect(location.deviceId).toBe('mac-mini-m4');
   });
 });

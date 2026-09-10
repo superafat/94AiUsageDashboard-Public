@@ -35,4 +35,31 @@ describe('ProviderDetailScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /返回首頁/ }));
     expect(navigate).toHaveBeenCalledWith({ route: 'dashboard' });
   });
+
+  it('never leaks tokens, paths, or keys into UI text', () => {
+    const sensitiveSnapshot: UsageSnapshot = {
+      ...codex,
+      errorSummary: `Bearer ${['ghp', 'secret123456789012345678901234567890'].join('_')} at ${['', 'Users', 'synthetic-user', 'token.txt'].join('/')}`,
+    };
+    render(<ProviderDetailScreen snapshot={sensitiveSnapshot} onNavigate={() => undefined} />);
+    expect(screen.queryByText(/ghp_secret/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/synthetic-user/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bearer/)).not.toBeInTheDocument();
+  });
+
+  it('displays deviceId to distinguish multi-device provider sources', () => {
+    render(<ProviderDetailScreen snapshot={{ ...codex, deviceId: 'mac-mini-m4' }} onNavigate={() => undefined} />);
+    expect(screen.getByText('mac-mini-m4')).toBeInTheDocument();
+  });
+
+  it('surfaces history error state when history fails to load', () => {
+    render(<ProviderDetailScreen snapshot={codex} historyError="歷史連線逾時" onNavigate={() => undefined} />);
+    expect(screen.getByText(/歷史記錄讀取失敗/)).toBeInTheDocument();
+    expect(screen.getByText('歷史連線逾時')).toBeInTheDocument();
+  });
+
+  it('surfaces history stale state when history data is stale', () => {
+    render(<ProviderDetailScreen snapshot={codex} historyStale={true} onNavigate={() => undefined} />);
+    expect(screen.getByText(/歷史資料可能已過期/)).toBeInTheDocument();
+  });
 });

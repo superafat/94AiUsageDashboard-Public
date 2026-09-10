@@ -30,8 +30,12 @@ function locationFromHash(): AppLocation {
   const raw = location.hash.replace(/^#\/?/, '');
   const [routeName = '', query = ''] = raw.split('?', 2);
   if (routeName === 'provider') {
-    const providerId = new URLSearchParams(query).get('providerId');
-    return providerId ? { route: 'provider', providerId } : { route: 'dashboard' };
+    const params = new URLSearchParams(query);
+    const providerId = params.get('providerId');
+    const deviceId = params.get('deviceId') ?? undefined;
+    return providerId
+      ? { route: 'provider', providerId, ...(deviceId ? { deviceId } : {}) }
+      : { route: 'dashboard' };
   }
   if (routeName === 'usage' || routeName === 'resets' || routeName === 'help' || routeName === 'settings' || routeName === 'getting-started') {
     return { route: routeName };
@@ -41,10 +45,15 @@ function locationFromHash(): AppLocation {
 
 function hashForLocation(target: AppLocation): string {
   if (target.route === 'provider') {
-    return `#/provider?${new URLSearchParams({ providerId: target.providerId })}`;
+    const params = new URLSearchParams({ providerId: target.providerId });
+    if (target.deviceId) {
+      params.set('deviceId', target.deviceId);
+    }
+    return `#/provider?${params.toString()}`;
   }
   return `#/${target.route}`;
 }
+
 
 export function createBrowserNavigation(): NavigationClient {
   const listeners = new Set<() => void>();

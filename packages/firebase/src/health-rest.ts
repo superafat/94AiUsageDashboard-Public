@@ -1,6 +1,6 @@
 import { parseDeviceHealthSnapshot, type DeviceHealthSnapshot } from '@94ai/core';
 import { healthDocPath } from './paths';
-import type { FetchLike } from './rest';
+import { composeSignal, type FetchLike } from './rest';
 
 type FirestoreValue = Record<string, unknown>;
 
@@ -30,13 +30,20 @@ export async function writeDeviceHealthRest(
   idToken: string,
   snapshot: DeviceHealthSnapshot,
   fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
 ): Promise<void> {
   const parsed = parseDeviceHealthSnapshot(snapshot);
   const url = documentUrl(projectId, healthDocPath(parsed.userId, parsed.deviceId));
-  const response = await fetchImpl(url, {
-    method: 'PATCH',
-    headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ fields: encodeMap(parsed as unknown as Record<string, unknown>) }),
-  });
-  if (!response.ok) throw new Error(`Firestore health write failed (${response.status})`);
+  const { signal: effectiveSignal, cleanup } = composeSignal(signal, 15_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'PATCH',
+      signal: effectiveSignal,
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ fields: encodeMap(parsed as unknown as Record<string, unknown>) }),
+    });
+    if (!response.ok) throw new Error(`Firestore health write failed (${response.status})`);
+  } finally {
+    cleanup();
+  }
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 
@@ -183,12 +184,33 @@ test('matchesBaseline strictly validates non-empty hex commit (>=7 chars) and ne
     false,
     'baseline with short commit must not match',
   );
+  const sevenCharBaseline = {
+    category: 'local_home_path',
+    path: 'apps/agent/src/background.test.ts',
+    commit: 'abcdef1',
+  };
+  assert.equal(
+    matchesBaseline({ category: 'local_home_path', path: 'apps/agent/src/background.test.ts', commit: 'abcdef1234567890abcdef1234567890abcdef12' }, sevenCharBaseline),
+    false,
+    'baseline with 7-char prefix commit must not match (complete commit identity required)',
+  );
 
-  // 7. Valid matching commit (exact and prefix, case-insensitive)
+  // 6b. Baseline with missing commit must never fail open
+  const missingCommitBaseline = {
+    category: 'local_home_path',
+    path: 'apps/agent/src/background.test.ts',
+  };
+  assert.equal(
+    matchesBaseline({ category: 'local_home_path', path: 'apps/agent/src/background.test.ts', commit: 'abcdef1234567890abcdef1234567890abcdef12' }, missingCommitBaseline),
+    false,
+    'baseline entry missing commit must not fail open or match any finding',
+  );
+
+  // 7. Complete valid matching commit (exact 40-char SHA only, case-insensitive, NO prefix behavior)
   assert.equal(
     matchesBaseline({ category: 'local_home_path', path: 'apps/agent/src/background.test.ts', commit: 'abcdef1' }, baseline),
-    true,
-    'valid 7-char prefix of baseline commit must match',
+    false,
+    '7-char prefix of baseline commit must NOT match (no prefix behavior)',
   );
   assert.equal(
     matchesBaseline(
@@ -219,6 +241,86 @@ test('matchesBaseline strictly validates non-empty hex commit (>=7 chars) and ne
     'mismatched path must not match',
   );
 });
+
+test('loadPrivateReleaseBaseline fails closed on incomplete commit identity in history baseline entries', async () => {
+  const { loadPrivateReleaseBaseline } = await import('../scripts/public-release-policy.mjs');
+  const tmpBaseline = path.join(ROOT_DIR, `bad-baseline-${Date.now()}.json`);
+  try {
+    // 1. Missing commit
+    fs.writeFileSync(tmpBaseline, JSON.stringify({
+      schemaVersion: 1,
+      history: [{ category: 'local_home_path', path: 'file.ts', reason: 'no commit' }],
+      reviewedBinaries: [],
+    }));
+    assert.throws(
+      () => loadPrivateReleaseBaseline(tmpBaseline),
+      /Private release baseline contains an invalid history entry/i,
+      'baseline with missing commit must fail closed',
+    );
+
+    // 2. Short prefix commit (7 chars)
+    fs.writeFileSync(tmpBaseline, JSON.stringify({
+      schemaVersion: 1,
+      history: [{ category: 'local_home_path', path: 'file.ts', commit: '1234567', reason: 'short commit' }],
+      reviewedBinaries: [],
+    }));
+    assert.throws(
+      () => loadPrivateReleaseBaseline(tmpBaseline),
+      /Private release baseline contains an invalid history entry/i,
+      'baseline with 7-char prefix commit must fail closed',
+    );
+  } finally {
+    try { fs.unlinkSync(tmpBaseline); } catch { /* best-effort test cleanup */ }
+  }
+});
+
+test('verifyPublicRelease never deletes a colliding pre-existing internally named directory', async () => {
+  const { verifyPublicRelease } = await import('../scripts/verify-public-release.mjs');
+  const originalNow = Date.now;
+  Date.now = () => 1788743000000;
+  const collision = path.join(os.tmpdir(), '94aiusage-public-export-1788743000000');
+  const sentinel = path.join(collision, 'sentinel.txt');
+  fs.mkdirSync(collision, { recursive: true });
+  fs.writeFileSync(sentinel, 'must survive');
+  try {
+    const result = await verifyPublicRelease({
+      cwd: ROOT_DIR,
+      skipTree: true, skipHistory: true, skipPublicReady: true, skipCleanExport: true,
+      mockExportResult: { success: false },
+    });
+    assert.equal(result.success, false);
+    assert.ok(fs.existsSync(sentinel), 'pre-existing collision must never be deleted');
+  } finally {
+    Date.now = originalNow;
+    fs.rmSync(collision, { recursive: true, force: true });
+  }
+});
+
+test('verifyPublicRelease leaves caller-supplied exportOutDir untouched on failure', async () => {
+  const { verifyPublicRelease } = await import('../scripts/verify-public-release.mjs');
+  const callerDir = fs.mkdtempSync(path.join(ROOT_DIR, 'caller-export-out-'));
+  const sentinel = path.join(callerDir, 'caller-sentinel.txt');
+  fs.writeFileSync(sentinel, 'caller data');
+  try {
+    const result = await verifyPublicRelease({
+      cwd: ROOT_DIR,
+      exportOutDir: callerDir,
+      skipTree: true,
+      skipHistory: true,
+      skipPublicReady: true,
+      skipCleanExport: true,
+      mockExportResult: { success: false },
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.failedStep, 'export:public');
+    assert.ok(fs.existsSync(callerDir), 'caller directory must remain untouched');
+    assert.ok(fs.existsSync(sentinel), 'caller sentinel file must remain untouched');
+  } finally {
+    try { fs.rmSync(callerDir, { recursive: true, force: true }); } catch { /* best-effort test cleanup */ }
+  }
+});
+
+
 
 test('checkHistoryAgainstBaseline passes when findings are covered by reviewed baseline', async () => {
   const scriptPath = path.join(ROOT_DIR, 'scripts/verify-public-release.mjs');
@@ -338,16 +440,23 @@ test('verifyPublicRelease orchestrator enforces fail-fast error handling for eac
   assert.equal(historyFailResult.failedStep, 'audit:history');
 
   // Test 3: Clean components pass
+  let isCleanTree = false;
+  try {
+    isCleanTree = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim() === '';
+  } catch {
+    isCleanTree = false;
+  }
   const cleanResult = await verifyPublicRelease({
     cwd: ROOT_DIR,
     skipPublicReady: true,
     skipCleanExport: true,
     mockTreeFindings: [],
     mockHistoryFindings: [],
-    mockExportResult: !isGitWorktree(ROOT_DIR) ? { success: true, exportedFilesCount: 50 } : undefined,
+    mockExportResult: (!isGitWorktree(ROOT_DIR) || !isCleanTree) ? { success: true, exportedFilesCount: 50 } : undefined,
   });
   assert.equal(cleanResult.success, true);
   assert.equal(cleanResult.failedStep, null);
+
 
   // Test 4: Clean export failure fails fast
   const exportFailResult = await verifyPublicRelease({

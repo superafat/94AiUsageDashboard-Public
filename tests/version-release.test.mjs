@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-test('root and all workspace packages report exact release version 0.1.2', () => {
+test('root and all workspace packages report exact release version 0.1.3', () => {
   const rootPkgPath = path.resolve('package.json');
   assert.ok(fs.existsSync(rootPkgPath), 'root package.json exists');
   const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
-  assert.equal(rootPkg.version, '0.1.2', 'root package version must be 0.1.2');
+  assert.equal(rootPkg.version, '0.1.3', 'root package version must be 0.1.3');
 
   const workspaces = rootPkg.workspaces ?? [];
   assert.ok(workspaces.length > 0, 'workspaces must be defined');
@@ -18,8 +18,8 @@ test('root and all workspace packages report exact release version 0.1.2', () =>
     const wsPkg = JSON.parse(fs.readFileSync(wsPkgPath, 'utf8'));
     assert.equal(
       wsPkg.version,
-      '0.1.2',
-      `workspace package ${wsPkg.name} (${workspace}) version must be 0.1.2`,
+      '0.1.3',
+      `workspace package ${wsPkg.name} (${workspace}) version must be 0.1.3`,
     );
   }
 });

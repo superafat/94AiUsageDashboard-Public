@@ -1,9 +1,17 @@
-import { parseUsageResource, parseUsageSnapshot, type UsageResource, type UsageSnapshot } from '@94ai/core';
+import {
+  classifyDiagnostic,
+  isSnapshotStale,
+  parseUsageResource,
+  parseUsageSnapshot,
+  type UsageResource,
+  type UsageSnapshot,
+} from '@94ai/core';
 
 interface NormalizeContext {
   userId: string;
   deviceId: string;
   syncedAt: string;
+  now?: number | Date;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,12 +67,11 @@ function providerErrors(input: unknown): Map<string, string> {
   const result = new Map<string, string>();
   if (!Array.isArray(input)) return result;
   for (const entry of input) {
-    if (!isRecord(entry) || typeof entry.providerId !== 'string' || typeof entry.message !== 'string') continue;
-    const sanitized = entry.message
-      .replace(/\/Users\/[^\s]+/g, '[local-path]')
-      .replace(/bearer\s+[^\s]+/gi, 'Bearer [redacted]')
-      .slice(0, 300);
-    result.set(entry.providerId, sanitized);
+    if (!isRecord(entry) || typeof entry.providerId !== 'string') continue;
+    const classified = classifyDiagnostic(entry.message);
+    if (classified) {
+      result.set(entry.providerId, classified);
+    }
   }
   return result;
 }
@@ -76,6 +83,9 @@ export function normalizeOpenUsageLimits(input: unknown, ctx: NormalizeContext):
 
   const errors = providerErrors(input.errors);
   const snapshots: UsageSnapshot[] = [];
+  const effectiveNow = ctx.now !== undefined
+    ? (typeof ctx.now === 'number' ? ctx.now : ctx.now.getTime())
+    : Date.parse(ctx.syncedAt);
 
   for (const [providerId, rawProvider] of Object.entries(input.providers)) {
     if (!isRecord(rawProvider) || !isRecord(rawProvider.resources)) continue;
@@ -90,12 +100,8 @@ export function normalizeOpenUsageLimits(input: unknown, ctx: NormalizeContext):
       }
     }
 
-    const stale = typeof rawProvider.stale === 'boolean'
-      ? rawProvider.stale
-      : Date.parse(rawProvider.expiresAt) <= Date.parse(ctx.syncedAt);
-
-    try {
-      snapshots.push(parseUsageSnapshot({
+    const errorSummary = errors.get(providerId);
+    const preliminarySnapshot: UsageSnapshot = {
       schemaVersion: 1,
       userId: ctx.userId,
       deviceId: ctx.deviceId,
@@ -104,10 +110,19 @@ export function normalizeOpenUsageLimits(input: unknown, ctx: NormalizeContext):
       fetchedAt: rawProvider.fetchedAt,
       syncedAt: ctx.syncedAt,
       expiresAt: rawProvider.expiresAt,
-      stale,
+      stale: typeof rawProvider.stale === 'boolean' ? rawProvider.stale : false,
       resources,
       sourceVersion: input.schema,
-      ...(errors.has(providerId) ? { errorSummary: errors.get(providerId) } : {}),
+      ...(errorSummary ? { errorSummary } : {}),
+    };
+
+    const stale = isSnapshotStale(preliminarySnapshot, effectiveNow);
+
+
+    try {
+      snapshots.push(parseUsageSnapshot({
+        ...preliminarySnapshot,
+        stale,
       }));
     } catch {
       // Preserve the last-good cloud document for this provider and continue the others.

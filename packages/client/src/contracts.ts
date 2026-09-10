@@ -42,10 +42,11 @@ export type AppLocation =
   | { route: 'dashboard' }
   | { route: 'usage' }
   | { route: 'resets' }
-  | { route: 'provider'; providerId: string }
+  | { route: 'provider'; providerId: string; deviceId?: string }
   | { route: 'help' }
   | { route: 'settings' }
   | { route: 'getting-started' };
+
 export type AppRoute = AppLocation['route'];
 
 export interface NavigationClient {
