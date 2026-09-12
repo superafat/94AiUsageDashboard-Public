@@ -1,8 +1,25 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { parseFirebaseConfig, signInWithGoogle, signOutUser, subscribeProviderPreferences, subscribeUsageHistory, subscribeUsageSnapshots, writeProviderPreference } from '@94ai/firebase';
-import { AuthClientError, type AuthClient, type ProviderPreferencesRepository, type UsageHistoryRepository, type UsageRepository } from '@94ai/client';
+import {
+  parseFirebaseConfig,
+  signInWithGoogle,
+  signOutUser,
+  subscribeProviderPreferences,
+  subscribeUsageHistory,
+  subscribeUsageSnapshots,
+  updateNotificationPreferenceTransaction,
+  writeProviderPreference,
+} from '@94ai/firebase';
+import {
+  AuthClientError,
+  type AuthClient,
+  type ProviderPreferencesRepository,
+  type PushNotificationService,
+  type UsageHistoryRepository,
+  type UsageRepository,
+} from '@94ai/client';
+import { createWebPushNotificationService } from './notifications';
 
 export function normalizeFirebaseAuthError(error: unknown): AuthClientError {
   const rawCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
@@ -23,7 +40,13 @@ export function normalizeFirebaseAuthError(error: unknown): AuthClientError {
   }
 }
 
-export function createFirebaseClients(): { auth: AuthClient; usage: UsageRepository; history: UsageHistoryRepository; preferences: ProviderPreferencesRepository } {
+export function createFirebaseClients(): {
+  auth: AuthClient;
+  usage: UsageRepository;
+  history: UsageHistoryRepository;
+  preferences: ProviderPreferencesRepository;
+  notifications: PushNotificationService;
+} {
   const app = initializeApp(parseFirebaseConfig({
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -33,16 +56,33 @@ export function createFirebaseClients(): { auth: AuthClient; usage: UsageReposit
   const firebaseAuth = getAuth(app);
   const db = getFirestore(app);
 
+  const notifications = createWebPushNotificationService({
+    db,
+    backendId: app.options.projectId!,
+    getCurrentUid: () => firebaseAuth.currentUser?.uid ?? null,
+  });
+
   return {
     auth: {
-      observe: (callback) => onAuthStateChanged(firebaseAuth, (user) => callback(
-        user ? { uid: user.uid, ...(user.displayName ? { displayName: user.displayName } : {}) } : null,
-      )),
+      observe: (callback) => onAuthStateChanged(firebaseAuth, (user) => {
+        void notifications.reconcileSession?.(user?.uid ?? null).catch(() => undefined);
+        callback(user ? { uid: user.uid, ...(user.displayName ? { displayName: user.displayName } : {}) } : null);
+      }),
       signIn: async () => {
         try { await signInWithGoogle(firebaseAuth); }
         catch (error) { throw normalizeFirebaseAuthError(error); }
       },
-      signOut: () => signOutUser(firebaseAuth),
+      signOut: async () => {
+        const currentUid = firebaseAuth.currentUser?.uid;
+        if (currentUid) {
+          try {
+            await notifications.unsubscribe(currentUid);
+          } catch {
+            // Unsubscribe never blocks signout
+          }
+        }
+        await signOutUser(firebaseAuth);
+      },
     },
     usage: {
       subscribe: (uid, onValue, onError) => subscribeUsageSnapshots(db, uid, onValue, onError),
@@ -61,6 +101,10 @@ export function createFirebaseClients(): { auth: AuthClient; usage: UsageReposit
           updatedAt: new Date().toISOString(),
         });
       },
+      setNotificationPreference: async (uid, family, patch) => {
+        await updateNotificationPreferenceTransaction(db, uid, family, patch);
+      },
     },
+    notifications,
   };
 }

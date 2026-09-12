@@ -9,7 +9,7 @@ Provider token／credential 永遠留在使用者自己的 Mac。94AiUsageDashbo
 ```text
 Provider credential（Mac only）
   → OpenUsage engine
-  → 額度 + 最多 35 天 Token／估算費用彙總 + device health
+  → 額度 + 最多 180 天 Token／估算費用彙總（既有 35 天安裝隨每日同步自然累積，不補造歷史） + device health
   → 使用者自己的 Firestore（Firebase Auth UID 隔離）
   → 使用者自己的 Web/PWA
 ```
@@ -30,7 +30,7 @@ OpenUsage 是獨立第三方軟體，不等於我們的 Firebase 同步。依上
 
 ## 歷史 Token 與費用
 
-本專案只同步最多 35 天聚合資料。所有金額都標示為「估算 API 等值費用」，不是訂閱帳單、信用卡扣款或實際應付費用。7 天費用資料不完整時不外推、不平均，而顯示「費用資料累積中」。
+升級後本專案支援最多 180 天聚合資料。升級前之既有安裝保留現有最多 35 天資料，並隨每日同步自然累積至最多 180 天 Token／估算費用，系統絕不捏造或補填升級前未記錄之歷史天數。所有金額都標示為「估算 API 等值費用」，不是訂閱帳單、信用卡扣款或實際應付費用。費用資料不完整時不外推、不平均，而顯示「費用資料累積中」並忠實揭露目前實際可用天數。
 
 ## Firestore 集合路徑與保留語意 (Retention Semantics)
 
@@ -42,12 +42,12 @@ OpenUsage 是獨立第三方軟體，不等於我們的 Firebase 同步。依上
    - **保留語意 (Retention)**：每次本機 Agent 執行同步時，以最新快照直接覆寫 (overwrite) 該文件；永久保留至下次同步或由使用者手動刪除 Firestore 資料。Firestore Rules 設為 `delete: if false`（防止 Client 誤刪）。
 2. **歷史摘要 (History Summary)**
    - **集合路徑**：`/users/{uid}/devices/{deviceId}/history/{providerId}`
-   - **儲存內容**：最多 35 天的 Token 與估算費用聚合摘要（包含 `today`、`yesterday`、`last30Days`、`dayCount`、`chunkCount`）。
+   - **儲存內容**：最多 180 天的 Token 與估算費用聚合摘要（包含 `today`、`yesterday`、`last30Days`、`dayCount`、`chunkCount`）。既有 35 天資料平滑相容並持續累積。
    - **保留語意 (Retention)**：歷史同步時覆寫更新為最新統計摘要；保留至下次更新或由使用者清空資料。Rules 設為 `delete: if false`。
 3. **歷史詳細區塊 (History Chunks)**
    - **集合路徑**：`/users/{uid}/devices/{deviceId}/history/{providerId}/historyChunks/{chunkId}`
-   - **儲存內容**：每日用量分段區塊（`chunkId` 為 `'0'` 至 `'6'`，共最多 7 個分塊，每個分塊最多 5 筆每日聚合記錄，構成最多 35 天滑動視窗）。
-   - **保留語意 (Retention)**：嚴格維持 35 天滑動視窗保留。超過 35 天的舊歷史區塊會在同步時被覆寫或刪除；Firestore Rules 明確允許登入本人對合法分塊 (`^[0-6]$`) 執行建立、更新與刪除 (`allow delete: if signedInAs(uid)`)。
+   - **儲存內容**：每日用量分段區塊（`chunkId` 為 `'0'` 至 `'35'`，共最多 36 個分塊，每個分塊最多 5 筆每日聚合記錄，構成最多 180 天滑動視窗；舊版 35 天分塊 `'0'` 至 `'6'` 完全向後相容）。
+   - **保留語意 (Retention)**：嚴格維持 180 天滑動視窗保留。超過 180 天的舊歷史區塊會在同步時被覆寫或刪除；Firestore Rules 明確允許登入本人對合法分塊 (`^([0-9]|[12][0-9]|3[0-5])$`) 執行建立、更新與刪除 (`allow delete: if signedInAs(uid)`)。
 4. **裝置健康狀態 (Device Health)**
    - **集合路徑**：`/users/{uid}/devices/{deviceId}/health/{healthId}` (`healthId == 'current'`)
    - **儲存內容**：裝置與常駐程式健康度（包含 `engine`、`background`、`sync` 狀態及可用 Provider 數量）。

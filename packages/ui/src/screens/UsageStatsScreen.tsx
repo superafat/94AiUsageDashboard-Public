@@ -19,8 +19,16 @@ function recentDates(now: Date, count: number): Set<string> {
   }));
 }
 
+function periodDayCount(period: UsagePeriod): number {
+  if (period === '1d') return 1;
+  if (period === '7d') return 7;
+  if (period === '30d') return 30;
+  if (period === '90d') return 90;
+  return 180;
+}
+
 function combinedDaily(items: UsageHistorySnapshot[], period: UsagePeriod, now: Date) {
-  const count = period === '1d' ? 1 : period === '7d' ? 7 : 30;
+  const count = periodDayCount(period);
   const dates = recentDates(now, count);
   const totals = new Map<string, number>();
   for (const item of items) for (const day of item.daily) if (dates.has(day.date)) totals.set(day.date, (totals.get(day.date) ?? 0) + day.tokens);
@@ -36,16 +44,24 @@ export function UsageStatsScreen({ items, now }: { items: UsageHistorySnapshot[]
   const cost = costComplete ? relevant.reduce((sum, row) => sum + (row.summary.estimatedCostUsd ?? 0), 0) : undefined;
   const main = [...relevant].sort((a, b) => b.summary.tokens - a.summary.tokens)[0];
   const trend = combinedDaily(items, period, now);
+  const requestedDays = periodDayCount(period);
+  const isPartial = trend.length > 0 && trend.length < requestedDays;
 
   return <section className="product-screen usage-stats-screen">
     <header className="screen-heading"><div><p className="screen-eyebrow">AI 使用歷史</p><h1>使用統計</h1><p>掌握 Token 用量與 API 等值估算費用。</p></div></header>
     <PeriodSelector value={period} onChange={setPeriod} />
+    {isPartial ? (
+      <div className="history-coverage-notice" role="status" aria-label="歷史資料涵蓋範圍">
+        <span>資料涵蓋範圍：實際有資料的 {trend.length} 個日期（{trend[0]?.date.replaceAll('-', '/')} ～ {trend.at(-1)?.date.replaceAll('-', '/')}），其餘天數隨每日同步自然累積，不捏造歷史。</span>
+      </div>
+    ) : null}
     <div className="stats-summary-grid">
       <section className="metric-summary" aria-label="Token 使用量"><span>Token 使用量</span><strong>{formatTokens(tokens)}</strong><small>tokens</small></section>
       <section className="metric-summary metric-summary--cost" aria-label="估算 API 等值費用"><span>估算 API 等值費用</span><strong>{cost === undefined ? '費用資料累積中' : `US$${cost.toFixed(2)}`}</strong><small>依本機使用紀錄與模型價格估算</small></section>
       <section className="metric-summary" aria-label="主要使用來源"><span>主要使用來源</span><strong>{main ? providerLabel(main.item.providerId) : '尚無資料'}</strong><small>{main ? `${formatTokens(main.summary.tokens)} tokens` : '等待 Mac 同步'}</small></section>
     </div>
     {trend.length ? <UsageTrendChart daily={trend} /> : <div className="state-card">尚無歷史資料</div>}
+
     <section className="history-breakdown"><div className="section-title-row"><div><p className="screen-eyebrow">Providers</p><h2>來源分布</h2></div></div>
       <div className="history-provider-grid">{relevant.length ? relevant.map(({ item, summary }) => <article className="history-provider-card" key={`${item.deviceId}:${item.providerId}`}><div><span className="provider-dot" data-family={providerFamily(item.providerId)} /><strong>{providerLabel(item.providerId)}</strong></div><strong>{formatTokens(summary.tokens)}</strong><span>{summary.estimatedCostUsd === undefined ? '費用資料累積中' : `約 US$${summary.estimatedCostUsd.toFixed(2)}`}</span></article>) : <p className="empty-inline">尚無歷史資料</p>}</div>
     </section>

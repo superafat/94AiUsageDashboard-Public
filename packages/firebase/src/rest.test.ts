@@ -38,7 +38,7 @@ describe('writeUsageSnapshotRest', () => {
       expect(init?.method).toBe('POST');
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer firebase-id-token');
       const payload = JSON.parse(String(init?.body)) as { writes: Write[] };
-      expect(payload.writes).toHaveLength(8);
+      expect(payload.writes).toHaveLength(37);
       for (const write of payload.writes) {
         if (write.update) documents.set(write.update.name, write.update);
         if (write.delete) documents.delete(write.delete);
@@ -56,6 +56,44 @@ describe('writeUsageSnapshotRest', () => {
       return new Response(JSON.stringify(documents.get(name)), { status: 200 });
     };
     await expect(readUsageHistoryRest('demo', 'firebase-id-token', 'alice', 'device-1', 'codex', fakeRead)).resolves.toEqual(history);
+  });
+
+  it('reads a 180-day history (36 chunks) via REST using appropriate pageSize query limit', async () => {
+    const history180 = {
+      schemaVersion: 1 as const, userId: 'alice', deviceId: 'device-1', providerId: 'codex',
+      syncedAt: '2026-09-12T00:00:00.000Z', currency: 'USD' as const,
+      periods: { today: { tokens: 100, estimatedCostUsd: 1.5 } },
+      daily: Array.from({ length: 180 }, (_, i) => ({
+        date: new Date(Date.UTC(2026, 2, 16 + i)).toISOString().slice(0, 10),
+        tokens: i + 100,
+        estimatedCostUsd: i / 10,
+        finalized: i < 179,
+      })),
+    };
+    type Write = { update?: { name: string; fields: Record<string, unknown> }; delete?: string };
+    const documents = new Map<string, { name: string; fields: Record<string, unknown> }>();
+    const fakeWrite = async (_input: string | URL | Request, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body)) as { writes: Write[] };
+      for (const write of payload.writes) {
+        if (write.update) documents.set(write.update.name, write.update);
+        if (write.delete) documents.delete(write.delete);
+      }
+      return new Response('{}', { status: 200 });
+    };
+    await writeUsageHistoryRest('demo', 'firebase-id-token', history180, fakeWrite);
+
+    const fakeRead = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/historyChunks')) {
+        const pageSize = Number(url.searchParams.get('pageSize') ?? '10');
+        const chunkDocs = [...documents.values()].filter((d) => d.name.includes('/historyChunks/')).slice(0, pageSize);
+        return new Response(JSON.stringify({ documents: chunkDocs }), { status: 200 });
+      }
+      const name = decodeURIComponent(url.pathname.slice('/v1/'.length));
+      return new Response(JSON.stringify(documents.get(name)), { status: 200 });
+    };
+
+    await expect(readUsageHistoryRest('demo', 'firebase-id-token', 'alice', 'device-1', 'codex', fakeRead)).resolves.toEqual(history180);
   });
 
   it('returns undefined when no previous history document exists', async () => {

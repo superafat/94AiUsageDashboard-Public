@@ -19,7 +19,7 @@ test('source switches persist and remove disabled family from home and statistic
   await page.getByRole('button', { name: '使用統計', exact: true }).last().click();
   await expect(page.getByRole('region', { name: 'Token 使用量' })).toContainText('98.00M');
   await page.getByRole('button', { name: '設定', exact: true }).last().click();
-  await expect(page.getByRole('switch')).toHaveCount(11);
+  await expect(page.getByRole('switch', {name: / 資料來源$/})).toHaveCount(11);
   for (const toggle of await page.getByRole('switch').all()) {
     const box = await toggle.boundingBox();
     expect(box?.height).toBeGreaterThanOrEqual(44);

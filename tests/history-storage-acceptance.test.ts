@@ -15,7 +15,7 @@ function history(uid: string, count: number): UsageHistorySnapshot {
     daily: Array.from({ length: count }, (_, i) => ({ date: new Date(Date.UTC(2026, 7, 3 + i)).toISOString().slice(0, 10), tokens: 2_000_000_000 + i, estimatedCostUsd: i / 10, finalized: i < count - 1 })) };
 }
 describe('full-size production history storage', () => {
-  for (const count of [0, 1, 7, 31, 35]) it(`roundtrips ${count} days through real owner rules and production adapters`, async () => {
+  for (const count of [0, 1, 7, 31, 35, 180]) it(`roundtrips ${count} days through real owner rules and production adapters`, async () => {
     const uid = `storage-${count}`; const db = env.authenticatedContext(uid).firestore(); const item = history(uid, count);
     await writeUsageHistory(db, uid, item);
     const summaryRef = doc(db, historyDocPath(uid, item.deviceId, item.providerId));
@@ -33,7 +33,7 @@ describe('full-size production history storage', () => {
     await assertFails(getDoc(doc(foreign, summaryRef.path)));
   });
   it('deletes old chunks when history shrinks and rejects sensitive rows atomically', async () => {
-    const uid = 'storage-shrink'; const db = env.authenticatedContext(uid).firestore(); const item = history(uid, 35);
+    const uid = 'storage-shrink'; const db = env.authenticatedContext(uid).firestore(); const item = history(uid, 180);
     await writeUsageHistory(db, uid, item);
     const base = historyDocPath(uid, item.deviceId, item.providerId);
     const changed = { ...history(uid, 1), syncedAt: '2026-09-06T08:05:00.000Z' };
@@ -49,9 +49,10 @@ describe('full-size production history storage', () => {
     for (const patch of [{ tokens: -1 }, { estimatedCostUsd: -2 }, { date: 'not-a-date' }, { token: 'secret' }]) {
       await assertFails(setDoc(doc(db, `${base}/historyChunks/0`), { ...good, daily: [{ ...good.daily[0], ...patch }] }));
     }
-    await assertFails(setDoc(doc(db, `${base}/historyChunks/7`), { ...good, chunkId: '7' }));
+    await assertFails(setDoc(doc(db, `${base}/historyChunks/36`), { ...good, chunkId: '36' }));
     await assertFails(setDoc(doc(db, `${base}/historyChunks/0`), { ...good, daily: [...good.daily, good.daily[0]] }));
     const bob = env.authenticatedContext('storage-bob').firestore();
     await assertFails(setDoc(doc(bob, `${base}/historyChunks/0`), good));
   });
+
 });

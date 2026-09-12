@@ -12,7 +12,8 @@ export function UsageTrendChart({ daily }: { daily: DailyUsageAggregate[] }) {
   const max = Math.max(1, ...values);
   const total = values.reduce((sum, value) => sum + value, 0);
   const min = values.length ? Math.min(...values) : 0;
-  return <figure className="usage-trend" aria-label={`每日 Token 使用趨勢，共 ${compact(total)} tokens，最低 ${compact(min)}，最高 ${compact(max)}`} role="img">
+  const density = daily.length > 90 ? 'ultra' : daily.length > 35 ? 'dense' : 'normal';
+  return <figure className="usage-trend" data-density={density} aria-label={`每日 Token 使用趨勢，共 ${compact(total)} tokens，最低 ${compact(min)}，最高 ${compact(max)}`} role="img">
     <div className="usage-trend__bars" aria-hidden="true">
       {daily.map((item) => <span key={item.date} title={`${item.date} · ${compact(item.tokens)} tokens`} style={{ height: `${Math.max(4, (item.tokens / max) * 100)}%` }} />)}
     </div>

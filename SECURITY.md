@@ -38,7 +38,7 @@ npm run usage -- doctor --json
 
 ## v1.5 新增邊界
 
-- Firestore 只接收 canonical quota、最多 35 天 aggregate history 與最小化 device health；Rules 逐層白名單並以 UID 隔離。
+- Firestore 只接收 canonical quota、最多 180 天 aggregate history（舊安裝平滑累積至 180 天）與最小化 device health；Rules 逐層白名單並以 UID 隔離。
 - `packages/ui`／`packages/client` 不提供 Provider credential 介面；未來 Android／iPhone App 也不得繞過 Mac credential boundary。
 - `setup` 只能執行 allowlist 安全動作，不會消耗 Reset Credit、不會更改 Provider quota，也不會任意執行 shell 字串。
 - 未來 official-app 後端、帳號刪除、資料保留、濫用防護與商店上架需另做正式安全／隱私 Gate。

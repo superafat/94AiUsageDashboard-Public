@@ -497,3 +497,33 @@ it('does not describe a preference-read failure as a completed sync', () => {
   expect(message).toContain('資料來源設定讀取失敗');
   expect(message).not.toContain('同步完成');
 });
+
+it('triggers push notification sync and isolates push errors from quota sync', async () => {
+  let pushCalled = false;
+  const result = await runSyncWithDependencies({
+    now: () => new Date('2026-09-05T10:00:05.000Z'),
+    getDeviceId: async () => 'device-1',
+    getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+    fetchLimits: async () => ({
+      schema: 'openusage.limits.v1',
+      providers: {
+        codex: {
+          fetchedAt: '2026-09-05T10:00:00.000Z',
+          expiresAt: '2026-09-05T10:05:00.000Z',
+          stale: false,
+          resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
+        },
+      },
+      errors: [],
+    }),
+    writeSnapshot: async () => undefined,
+    syncPushNotifications: async () => {
+      pushCalled = true;
+      throw new Error('keys_failed');
+    },
+  });
+
+  expect(pushCalled).toBe(true);
+  expect(result.providerCount).toBe(1);
+  expect(result.pushErrorCode).toBe('push_keys_failed');
+});

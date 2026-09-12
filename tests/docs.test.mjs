@@ -59,3 +59,35 @@ test('README documents read-only telemetry truth and non-centralization boundari
   assert.match(readme, /估算.*費用.*不是.*帳單|不是實際帳單/);
   assert.match(readme, /不猜值|不造假|不會假造/);
 });
+
+test('docs/notifications.md documents both iPhone and Android onboarding flows with caveats and troubleshooting', () => {
+  const notificationsPath = new URL('../docs/notifications.md', import.meta.url);
+  assert.ok(fs.existsSync(notificationsPath), 'docs/notifications.md must exist');
+  const notifications = fs.readFileSync(notificationsPath, 'utf8');
+
+  // iPhone onboarding steps & caveats
+  assert.match(notifications, /iPhone/i);
+  assert.match(notifications, /Safari/i);
+  assert.match(notifications, /加入主畫面/);
+  assert.match(notifications, /專注模式/);
+
+  // Android onboarding steps & caveats
+  assert.match(notifications, /Android/i);
+  assert.match(notifications, /Chrome/i);
+  assert.match(notifications, /電池最佳化|背景限制/);
+
+  // Cadence & push-service acceptance vs device display
+  assert.match(notifications, /約每\s*5\s*分鐘/);
+  assert.match(notifications, /推播服務.*(?:接受|受理).*(?:不代表|不等於).*(?:顯示|收到)/);
+
+  // Troubleshooting
+  assert.match(notifications, /常見問題|排查|Troubleshooting/i);
+  assert.match(notifications, /Mac.*(?:離線|在線|Companion)/);
+  assert.match(notifications, /權限.*(?:封鎖|拒絕)/);
+});
+
+test('README includes push onboarding subsection linking to docs/notifications.md', () => {
+  assert.match(readme, /推播.*(?:通知|設定|教學)/);
+  assert.match(readme, /docs\/notifications\.md/);
+  assert.doesNotMatch(readme, /Google Play.*已發布|App Store.*已發布/);
+});

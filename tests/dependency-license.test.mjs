@@ -97,10 +97,20 @@ test("every direct production dependency has license classification and no block
       `Package ${pkgName} has blocker license ${license}; GPL/AGPL/SSPL/custom/unknown direct production dependencies are forbidden without owner/legal review`
     );
 
-    assert.ok(
-      PERMISSIVE_LICENSES.has(license),
-      `Package ${pkgName} license ${license} must be classified as Permissive`
-    );
+    if (pkgName === "web-push") {
+      // One reviewed, pinned, unmodified Node dependency; not a blanket copyleft exemption.
+      assert.equal(meta.version, "3.6.7");
+      assert.equal(license, "MPL-2.0");
+      const lock = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, "package-lock.json"), "utf8"));
+      assert.equal(lock.packages["node_modules/web-push"].integrity, "sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==");
+      assert.match(content, /Unmodified Node-only integration/);
+      assert.match(content, /MPL-2.0.*not MIT/);
+      const notices = fs.readFileSync(NOTICES_PATH, "utf8");
+      assert.ok(notices.includes("https://registry.npmjs.org/web-push/-/web-push-3.6.7.tgz"));
+      assert.match(fs.readFileSync(path.join(ROOT_DIR, "node_modules/web-push/LICENSE"), "utf8"), /Mozilla Public\s+License, v\. 2\.0/);
+    } else {
+      assert.ok(PERMISSIVE_LICENSES.has(license), `Package ${pkgName} license ${license} requires its own reviewed classification`);
+    }
   }
 
   // Document must explicitly classify Permissive and state 0 blockers

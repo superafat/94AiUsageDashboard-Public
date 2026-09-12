@@ -37,7 +37,7 @@ function locationFromHash(): AppLocation {
       ? { route: 'provider', providerId, ...(deviceId ? { deviceId } : {}) }
       : { route: 'dashboard' };
   }
-  if (routeName === 'usage' || routeName === 'resets' || routeName === 'help' || routeName === 'settings' || routeName === 'getting-started') {
+  if (routeName === 'usage' || routeName === 'resets' || routeName === 'help' || routeName === 'settings' || routeName === 'getting-started' || routeName === 'updates') {
     return { route: routeName };
   }
   return { route: 'dashboard' };

@@ -34,6 +34,7 @@ describe('useProviderPreferences hook', () => {
     let subscriber: ((prefs: ProviderPreference[]) => void) | undefined;
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (uid, onValue) => {
           subscriber = onValue;
           return () => { subscriber = undefined; };
@@ -65,6 +66,7 @@ describe('useProviderPreferences hook', () => {
 
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (uid, onValue) => {
           if (uid === 'alice') {
             aliceCallback = onValue;
@@ -117,6 +119,7 @@ describe('useProviderPreferences hook', () => {
 
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: () => () => undefined,
         setPreference,
       },
@@ -148,6 +151,7 @@ describe('useProviderPreferences hook', () => {
     let errorHandler: ((error: Error) => void) | undefined;
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (_uid, _onValue, onError) => {
           errorHandler = onError;
           return () => undefined;
@@ -178,6 +182,7 @@ describe('useProviderPreferences hook', () => {
 
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (_uid, onValue) => {
           subscriber = onValue;
           return () => undefined;
@@ -223,6 +228,7 @@ describe('useProviderPreferences hook', () => {
     let resolveAliceSave!: () => void;
     const services = mockServices({
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: () => () => undefined,
         setPreference: vi.fn(() => new Promise<void>((resolve) => {
           resolveAliceSave = resolve;
@@ -265,6 +271,7 @@ describe('useProviderPreferences hook', () => {
     const services = mockServices({
       connectivity: { current: () => 'offline', subscribe: () => () => undefined },
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: () => () => undefined,
         setPreference,
       },
@@ -286,6 +293,7 @@ describe('useProviderPreferences hook', () => {
     const servicesA = mockServices({
       backendProfile: { mode: 'self-hosted', label: 'Backend A' },
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (_uid, onValue) => {
           backendACallback = onValue;
           return () => undefined;
@@ -298,6 +306,7 @@ describe('useProviderPreferences hook', () => {
     const servicesB = mockServices({
       backendProfile: { mode: 'self-hosted', label: 'Backend B' },
       preferences: {
+        setNotificationPreference: async () => undefined,
         subscribe: (_uid, onValue) => {
           backendBCallback = onValue;
           return () => undefined;

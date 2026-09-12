@@ -1,5 +1,6 @@
 import type { AppLocation } from '@94ai/client';
 import { PROVIDER_CATALOG, resolveResetCredits, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { BeeMascot } from '../components/BeeMascot';
 import { ProviderSummaryCard } from '../components/ProviderSummaryCard';
 import { UsageSummaryCard } from '../components/UsageSummaryCard';
 import { providerFamily, providerSort } from '../provider-display';
@@ -31,7 +32,7 @@ export function DashboardScreen({ userName, items, historyItems, now, offline, l
   const latest = items.reduce<string | undefined>((value, item) => !value || item.syncedAt > value ? item.syncedAt : value, undefined);
   const initial = userName.trim().slice(0, 1).toUpperCase() || 'AI';
   return <section className="home-screen">
-    <header className="home-header"><div><h1>AI 額度儀表板</h1><p>掌握使用情況，讓 AI 陪你走得更遠</p></div><button type="button" className="profile-avatar" aria-label={`帳號 ${userName}`} onClick={() => onNavigate({ route: 'settings' })}>{initial}</button></header>
+    <header className="home-header"><div><div className="home-header__brand"><BeeMascot size={28} /><h1>蜂神榜 Ai 額度儀表板</h1></div><p>掌握使用情況，讓 AI 陪你走得更遠</p></div><button type="button" className="profile-avatar" aria-label={`帳號 ${userName}`} onClick={() => onNavigate({ route: 'settings' })}>{initial}</button></header>
     <button type="button" className="inspiration-card" onClick={() => onNavigate({ route: 'usage' })}><span className="leaf-mark" aria-hidden="true"><i /><i /></span><span><strong>善用 AI，創造更多可能</strong><small>合理分配 · 持續前進</small></span><b aria-hidden="true">›</b></button>
     {offline ? <div className="home-alert" role="alert"><strong>目前離線</strong><span>顯示最近取得的資料，恢復連線後會自動更新。</span></div> : null}
     {hasStale ? <div className="home-alert" role="alert"><strong>資料可能已過期</strong><span>Mac 最近沒有完成同步，以下保留最後成功資料。</span></div> : null}

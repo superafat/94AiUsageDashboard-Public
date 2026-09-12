@@ -12,6 +12,10 @@
   "dependencies": {
     "@94ai/core": "*",
     "@94ai/firebase": "*",
-    "@94ai/openusage": "*"
+    "@94ai/openusage": "*",
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
   }
 }

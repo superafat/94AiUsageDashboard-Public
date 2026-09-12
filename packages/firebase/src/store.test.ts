@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { preferenceDocPath, historyDocPath, usageDocPath, subscribeProviderPreferences, writeProviderPreference, writeUsageHistory, writeUsageSnapshot } from './store';
+import { preferenceDocPath, historyDocPath, usageDocPath, subscribeProviderPreferences, updateNotificationPreferenceTransaction, writeProviderPreference, writeUsageHistory, writeUsageSnapshot } from './store';
 
 const mockOnSnapshot = vi.fn();
 const mockSetDoc = vi.fn();
+const mockRunTransaction = vi.fn();
 
 vi.mock('firebase/firestore', async () => {
   const actual = await vi.importActual<typeof import('firebase/firestore')>('firebase/firestore');
@@ -12,6 +13,7 @@ vi.mock('firebase/firestore', async () => {
     doc: vi.fn(() => ({})),
     onSnapshot: (...args: unknown[]) => mockOnSnapshot(...args),
     setDoc: (...args: unknown[]) => mockSetDoc(...args),
+    runTransaction: (...args: unknown[]) => mockRunTransaction(...args),
   };
 });
 
@@ -155,6 +157,78 @@ describe('Firebase usage store', () => {
       updatedAt: '2026-09-10T10:00:00.000Z',
     });
     expect(setDocOptions).toEqual({ merge: true });
+  });
+
+  it('updateNotificationPreferenceTransaction updates single flag while preserving existing counterpart and enabled', async () => {
+    const fakeDb = {} as never;
+    let savedData: unknown;
+    let savedOptions: unknown;
+
+    mockRunTransaction.mockImplementation(async (_db: unknown, updateFunction: (tx: unknown) => Promise<unknown>) => {
+      const fakeTx = {
+        get: vi.fn(async () => ({
+          exists: () => true,
+          data: () => ({
+            schemaVersion: 1,
+            userId: 'alice',
+            family: 'codex',
+            enabled: false,
+            updatedAt: '2026-09-10T10:00:00.000Z',
+            notifications: {
+              lowQuota: true,
+              reset: true,
+            },
+          }),
+        })),
+        set: vi.fn((_ref: unknown, data: unknown, options: unknown) => {
+          savedData = data;
+          savedOptions = options;
+        }),
+      };
+      return updateFunction(fakeTx);
+    });
+
+    await updateNotificationPreferenceTransaction(fakeDb, 'alice', 'codex', { lowQuota: false });
+    expect(savedOptions).toEqual({ merge: true });
+    expect(savedData).toMatchObject({
+      schemaVersion: 1,
+      userId: 'alice',
+      family: 'codex',
+      enabled: false,
+      notifications: {
+        lowQuota: false,
+        reset: true,
+      },
+    });
+  });
+
+  it('updateNotificationPreferenceTransaction applies default enabled when doc is absent', async () => {
+    const fakeDb = {} as never;
+    let savedData: unknown;
+
+    mockRunTransaction.mockImplementation(async (_db: unknown, updateFunction: (tx: unknown) => Promise<unknown>) => {
+      const fakeTx = {
+        get: vi.fn(async () => ({
+          exists: () => false,
+          data: () => undefined,
+        })),
+        set: vi.fn((_ref: unknown, data: unknown) => {
+          savedData = data;
+        }),
+      };
+      return updateFunction(fakeTx);
+    });
+
+    await updateNotificationPreferenceTransaction(fakeDb, 'alice', 'codex', { reset: true });
+    expect(savedData).toMatchObject({
+      schemaVersion: 1,
+      userId: 'alice',
+      family: 'codex',
+      enabled: true, // codex defaults to enabled
+      notifications: {
+        reset: true,
+      },
+    });
   });
 });
 

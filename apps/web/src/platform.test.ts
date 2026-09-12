@@ -32,4 +32,11 @@ describe('browser navigation adapter', () => {
     window.location.hash = '#/provider?providerId=codex&deviceId=mac-studio%20m2';
     expect(navigation.current()).toEqual({ route: 'provider', providerId: 'codex', deviceId: 'mac-studio m2' });
   });
+
+  it('round-trips updates navigation to hash and back', () => {
+    const navigation = createBrowserNavigation();
+    navigation.navigate({ route: 'updates' });
+    expect(window.location.hash).toBe('#/updates');
+    expect(navigation.current()).toEqual({ route: 'updates' });
+  });
 });

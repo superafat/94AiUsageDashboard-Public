@@ -75,7 +75,7 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: '使用統計' }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole('button', { name: '重置額度' }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByRole('button', { name: '設定' }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('AI Usage').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('94AiUsageDashboard').length).toBeGreaterThanOrEqual(1);
   });
 
   it('observes platform-neutral navigation locations', () => {
@@ -433,6 +433,7 @@ describe('App', () => {
     fake.services.preferences = {
       subscribe: (_uid, onValue) => { prefCallback = onValue; return () => undefined; },
       setPreference: async () => undefined,
+      setNotificationPreference: async () => undefined,
     };
     render(<AppRoot services={fake.services} />);
     fake.auth({ uid: 'alice' });
@@ -480,6 +481,7 @@ describe('App', () => {
     fake.services.preferences = {
       subscribe: (_uid, onValue) => { prefCallback = onValue; return () => undefined; },
       setPreference: async () => undefined,
+      setNotificationPreference: async () => undefined,
     };
     render(<AppRoot services={fake.services} />);
     fake.auth({ uid: 'alice' });
@@ -495,5 +497,20 @@ describe('App', () => {
     // Cursor is enabled but has no snapshots, so it must show missing/not-connected, never invented quota
     expect(screen.getByRole('region', { name: 'Cursor 尚未連接' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Cursor 額度' })).not.toBeInTheDocument();
+  });
+
+  it('renders UpdatesScreen when navigating to updates route both for authenticated and unauthenticated users', () => {
+    const unauthedFake = fakeServices();
+    unauthedFake.navigate({ route: 'updates' });
+    const { unmount } = render(<AppRoot services={unauthedFake.services} />);
+    unauthedFake.auth(null);
+    expect(screen.getByRole('heading', { level: 1, name: '更新與公告' })).toBeInTheDocument();
+    unmount();
+
+    const authedFake = fakeServices();
+    authedFake.navigate({ route: 'updates' });
+    render(<AppRoot services={authedFake.services} />);
+    authedFake.auth({ uid: 'alice' });
+    expect(screen.getByRole('heading', { level: 1, name: '更新與公告' })).toBeInTheDocument();
   });
 });
