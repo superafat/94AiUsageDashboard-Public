@@ -40,10 +40,22 @@ OpenUsage 為 Robin Ebers 所開發之獨立開源專案。94AiUsageDashboard �
 | `react-dom` | `19.2.8` | `MIT` | Permissive | `node_modules/react-dom/LICENSE` |
 | `vite` | `7.3.6` | `MIT` | Permissive | `node_modules/vite/LICENSE.md` |
 
-所有 direct production dependencies 均採用寬鬆開源授權（Permissive: MIT 或 Apache-2.0），查無任何 GPL/AGPL/SSPL/custom/unknown 等 blocker 授權。
+既有 8 個 direct production dependencies 採用 MIT 或 Apache-2.0；新增的 web-push 3.6.7 另依 MPL-2.0 保留原始碼取得與授權聲明。查無 GPL/AGPL/SSPL/custom/unknown 等 blocker 授權。
 
 ---
 
 ## 3. Other Dependencies & Dev Tools
 
 其他 npm `devDependencies`（如 TypeScript、ESLint、Vitest、Playwright 等）僅用於本機開發、靜態檢查與測試建置，不包含於生產環境 runtime 分發。其授權資訊以各 dependency 自身的 package metadata / LICENSE 為準。
+
+## 4. Web Push library (v0.1.4)
+
+- **Package:** web-push 3.6.7
+- **License:** Mozilla Public License 2.0 (MPL-2.0)
+- **Upstream:** https://github.com/web-push-libs/web-push
+- **Exact source and license package:** https://registry.npmjs.org/web-push/-/web-push-3.6.7.tgz
+- **Installed license:** `node_modules/web-push/LICENSE`
+
+This dependency's source code is available under MPL-2.0. It is used unmodified in the Mac Companion, not relabeled MIT and not copied into browser code. The source archive above includes the MPL-covered files and original license notices. Recipients retain their MPL source rights independently of this application's MIT license. When redistributing the Companion with installed dependencies, preserve these notices and the original library license/source availability. No affiliation with or endorsement by the Web Push library maintainers is claimed.
+
+Development declarations: @types/web-push 3.6.4, MIT, from DefinitelyTyped. They are not the runtime Web Push library.

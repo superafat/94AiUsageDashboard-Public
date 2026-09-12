@@ -1,4 +1,10 @@
-import type { ProviderPreference, UsageHistorySnapshot, UsageSnapshot } from '@94ai/core';
+import type {
+  ProviderPreference,
+  PushProducerRecord,
+  PushSubscriptionRecord,
+  UsageHistorySnapshot,
+  UsageSnapshot,
+} from '@94ai/core';
 
 export interface AppUser { uid: string; displayName?: string }
 export type BackendProfile =
@@ -31,6 +37,39 @@ export interface UsageHistoryRepository {
 export interface ProviderPreferencesRepository {
   subscribe(uid: string, onValue: (items: ProviderPreference[]) => void, onError: (error: Error) => void): () => void;
   setPreference(uid: string, family: string, enabled: boolean): Promise<void>;
+  setNotificationPreference(
+    uid: string,
+    family: string,
+    patch: { lowQuota?: boolean; reset?: boolean },
+  ): Promise<void>;
+}
+
+export type PushPermissionStatus =
+  | 'unsupported'
+  | 'ios_needs_home_screen'
+  | 'default'
+  | 'granted'
+  | 'denied';
+
+export interface PushNotificationService {
+  reconcileSession?(uid: string | null): Promise<void>;
+  getPermissionStatus(): Promise<PushPermissionStatus>;
+  requestPermission(): Promise<NotificationPermission>;
+  isSupported(): boolean;
+  subscribe(uid: string, producer: PushProducerRecord): Promise<PushSubscriptionRecord>;
+  unsubscribe(uid: string): Promise<void>;
+  getCurrentSubscription(uid: string): Promise<PushSubscriptionRecord | null>;
+  requestTestPush(uid: string, targetDeviceId: string): Promise<void>;
+  subscribeProducers(
+    uid: string,
+    onValue: (producers: PushProducerRecord[]) => void,
+    onError?: (err: Error) => void,
+  ): () => void;
+  subscribeSubscriptions(
+    uid: string,
+    onValue: (subscriptions: PushSubscriptionRecord[]) => void,
+    onError?: (err: Error) => void,
+  ): () => void;
 }
 
 export interface ConnectivityClient {
@@ -50,7 +89,8 @@ export type AppLocation =
   | { route: 'provider'; providerId: string; deviceId?: string }
   | { route: 'help' }
   | { route: 'settings' }
-  | { route: 'getting-started' };
+  | { route: 'getting-started' }
+  | { route: 'updates' };
 
 export type AppRoute = AppLocation['route'];
 
@@ -66,6 +106,7 @@ export interface AppClientServices {
   usage: UsageRepository;
   history: UsageHistoryRepository;
   preferences?: ProviderPreferencesRepository;
+  notifications?: PushNotificationService;
   connectivity: ConnectivityClient;
   clock: ClockClient;
   navigation: NavigationClient;

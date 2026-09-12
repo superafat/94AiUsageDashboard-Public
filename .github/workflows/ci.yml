@@ -1,15 +1,15 @@
-name: CI
+name: Manual CI (Owner approval required)
 
+# Zero-cost GitHub rule: never auto-run this workflow.
+# A manual run is allowed only after explicit Owner approval for that exact use.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: manual-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,3 +32,5 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run verify:public-ready
       - run: npm run verify:public-release -- --skip-public-ready
+        env:
+          PUBLIC_RELEASE_HEAD_SHA: ${{ github.sha }}

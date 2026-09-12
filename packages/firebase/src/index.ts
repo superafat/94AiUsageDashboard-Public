@@ -4,3 +4,4 @@ export * from './paths';
 export * from './store';
 export * from './rest';
 export * from './health-rest';
+export * from './push-store';

@@ -6,7 +6,7 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 
 type FirestoreValue = Record<string, unknown>;
 
-function encodeValue(value: unknown): FirestoreValue {
+export function encodeValue(value: unknown): FirestoreValue {
   if (value === null) return { nullValue: null };
   if (typeof value === 'string') return { stringValue: value };
   if (typeof value === 'boolean') return { booleanValue: value };
@@ -19,15 +19,13 @@ function encodeValue(value: unknown): FirestoreValue {
   throw new Error('Firestore REST cannot encode unsupported value');
 }
 
-function encodeMap(value: Record<string, unknown>): Record<string, FirestoreValue> {
+export function encodeMap(value: Record<string, unknown>): Record<string, FirestoreValue> {
   return Object.fromEntries(
     Object.entries(value)
       .filter(([, item]) => item !== undefined)
       .map(([key, item]) => [key, encodeValue(item)]),
   );
 }
-
-
 
 function decodeValue(value: FirestoreValue): unknown {
   if ('nullValue' in value) return null;
@@ -46,11 +44,11 @@ function decodeValue(value: FirestoreValue): unknown {
   throw new Error('Firestore REST returned unsupported value');
 }
 
-function decodeMap(fields: Record<string, FirestoreValue>): Record<string, unknown> {
+export function decodeMap(fields: Record<string, FirestoreValue>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decodeValue(value)]));
 }
 
-function restDocumentUrl(projectId: string, documentPath: string): string {
+export function restDocumentUrl(projectId: string, documentPath: string): string {
   const encoded = documentPath.split('/').map(encodeURIComponent).join('/');
   return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${encoded}`;
 }
@@ -174,7 +172,7 @@ export async function readUsageHistoryRest(
     if (summary.userId !== uid || summary.deviceId !== deviceId || summary.providerId !== providerId) throw new Error('history identity mismatch');
     if (!('storageVersion' in summary)) return summary;
     if (summary.chunkCount === 0) return assembleUsageHistory(summary, []);
-    const chunksResponse = await fetchImpl(`${url}/historyChunks?pageSize=7`, {
+    const chunksResponse = await fetchImpl(`${url}/historyChunks?pageSize=${HISTORY_MAX_CHUNKS}`, {
       method: 'GET',
       signal: effectiveSignal,
       headers: { authorization: `Bearer ${idToken}`, accept: 'application/json' },

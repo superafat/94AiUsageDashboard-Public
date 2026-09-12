@@ -179,3 +179,79 @@ it('rejects oversized preference timestamps and preserves notification fields on
   const actual = (await getDoc(ref)).data();
   if (actual?.enabled !== false || actual.notifications?.lowQuota !== true || actual.notifications?.reset !== true) throw new Error('source-only update erased notifications');
 });
+
+describe('Firestore push notifications rules', () => {
+  const producerPath = (uid: string, devId: string) => `users/${uid}/pushProducers/${devId}`;
+  const subPath = (uid: string, browserId: string) => `users/${uid}/pushSubscriptions/${browserId}`;
+
+  const validProducer = (uid: string, devId: string) => ({
+    schemaVersion: 1,
+    userId: uid,
+    deviceId: devId,
+    publicKey: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjGwVQxSbMuSt6',
+    updatedAt: '2026-09-10T12:00:00.000Z',
+  });
+
+  const validSub = (uid: string, browserId: string) => ({
+    schemaVersion: 1,
+    userId: uid,
+    browserId,
+    targetDeviceId: 'mac-1',
+    enrollmentEpoch: 1,
+    applicationServerKey: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjGwVQxSbMuSt6',
+    endpoint: 'https://fcm.googleapis.com/fcm/send/sample-token',
+    p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QT9P04MgDxBCH40PvK_VQzsQmtiUtWIf8DnnyP4PhAj2XXTc',
+    auth: 'tBHItJI5svbpez7KI4CCXg',
+    createdAt: '2026-09-10T12:00:00.000Z',
+    expiresAt: '2026-10-10T12:00:00.000Z',
+  });
+
+  it('enforces owner isolation and schema on pushProducers', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    const anon = env.unauthenticatedContext().firestore();
+
+    await assertFails(getDoc(doc(anon, producerPath('alice', 'mac-1'))));
+    await assertFails(setDoc(doc(anon, producerPath('alice', 'mac-1')), validProducer('alice', 'mac-1')));
+
+    await assertSucceeds(setDoc(doc(alice, producerPath('alice', 'mac-1')), validProducer('alice', 'mac-1')));
+    await assertSucceeds(getDoc(doc(alice, producerPath('alice', 'mac-1'))));
+
+    await assertFails(getDoc(doc(bob, producerPath('alice', 'mac-1'))));
+    await assertFails(setDoc(doc(bob, producerPath('alice', 'mac-1')), validProducer('bob', 'mac-1')));
+
+    // Rejects delete
+    const { deleteDoc } = await import('firebase/firestore');
+    await assertFails(deleteDoc(doc(alice, producerPath('alice', 'mac-1'))));
+    // Rejects unknown fields
+    await assertFails(setDoc(doc(alice, producerPath('alice', 'mac-1')), { ...validProducer('alice', 'mac-1'), privateKey: 'not-a-real-value' }));
+  });
+
+  it('enforces owner isolation, endpoint whitelist, and owner deletion on pushSubscriptions', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+
+    await assertSucceeds(setDoc(doc(alice, subPath('alice', 'browser-1')), validSub('alice', 'browser-1')));
+    await assertSucceeds(getDoc(doc(alice, subPath('alice', 'browser-1'))));
+
+    await assertFails(getDoc(doc(bob, subPath('alice', 'browser-1'))));
+    await assertFails(setDoc(doc(bob, subPath('alice', 'browser-1')), validSub('bob', 'browser-1')));
+
+    // Rejects invalid endpoints (non-whitelisted host)
+    await assertFails(setDoc(doc(alice, subPath('alice', 'browser-2')), {
+      ...validSub('alice', 'browser-2'),
+      endpoint: 'https://evil.com/push',
+    }));
+
+    // Allows owner delete (for logout/revoke)
+    const { deleteDoc } = await import('firebase/firestore');
+    await assertSucceeds(deleteDoc(doc(alice, subPath('alice', 'browser-1'))));
+  });
+  it('keeps enrolled routing immutable while allowing an owner test request', async () => {
+    const db=env.authenticatedContext('immutable-push').firestore(),ref=doc(db,subPath('immutable-push','browser-fixed'));
+    const original=validSub('immutable-push','browser-fixed');await assertSucceeds(setDoc(ref,original));
+    for(const patch of [{targetDeviceId:'another-mac'},{enrollmentEpoch:2},{endpoint:'https://fcm.googleapis.com/fcm/send/changed'},{auth:'different-value'}])await assertFails(setDoc(ref,{...original,...patch}));
+    await assertSucceeds(setDoc(ref,{...original,testRequestId:'owner-test',testRequestedAt:'2026-09-10T12:01:00.000Z'}));
+  });
+
+});

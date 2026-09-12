@@ -1,8 +1,8 @@
 # Dependency & Third-Party License Review
 
-**Project:** 94AiUsageDashboard (v0.1.2)  
-**Date:** 2026-09-06  
-**Status:** COMPLETE (Zero Blockers)  
+**Project:** 94AiUsageDashboard (v0.1.4)
+**Date:** 2026-09-11
+**Status:** COMPLETE (Zero Blockers)
 **Blockers: 0**
 
 ---
@@ -56,6 +56,8 @@ Every direct production dependency declared in root or workspace manifests is it
 | `react-dom` | `apps/web` | `^19.2.8` | `19.2.8` | `MIT` | **Permissive** | No | `node_modules/react-dom/LICENSE` |
 | `vite` | `apps/web` | `^7.3.6` | `7.3.6` | `MIT` | **Permissive** | No | `node_modules/vite/LICENSE.md` |
 
+| `web-push` | `apps/agent` | `3.6.7` | `3.6.7` | `MPL-2.0` | **Review — Approved for this unmodified dependency** | No | `node_modules/web-push/LICENSE` |
+
 ### Workspace-Internal Packages (Monorepo Code)
 The following packages are declared under `dependencies` but represent internal workspace modules authored within this repository, not third-party dependencies:
 - `@94ai/core` (`packages/core`)
@@ -73,9 +75,9 @@ Several testing and bundler tools (`@testing-library/jest-dom`, `@testing-librar
 
 ## 4. Review Findings & Blocker Assessment
 
-- **Total Direct External Production Dependencies:** 8 unique packages
+- **Total Direct External Production Dependencies:** 9 unique packages
 - **Permissive Licenses:** 8 (7 `MIT`, 1 `Apache-2.0`)
-- **Review Licenses:** 0
+- **Review Licenses:** 1 (`web-push` 3.6.7, MPL-2.0; bounded decision below)
 - **Blocker Licenses:** 0 (`Blockers: 0`)
 
 No GPL, AGPL, SSPL, custom, or unknown licenses exist among direct production dependencies.
@@ -97,3 +99,17 @@ No GPL, AGPL, SSPL, custom, or unknown licenses exist among direct production de
 
 1. **Gate 3 (License Approval): APPROVED.** Project license is MIT; direct dependency review has zero blockers.
 2. **Gate 4 (Owner Sign-off): APPROVED 2026-09-06.** Owner authorized end-to-end public publication, including creation of the separate clean public repository.
+
+## 7. v0.1.4 Web Push dependency decision
+
+`web-push` **3.6.7** is MPL-2.0, not MIT or a permissive license. This is an **Unmodified Node-only integration**: the original library remains a separate npm dependency in the Mac Companion. No upstream source is copied into our MIT files or modified, and it is not included in the browser application bundle. The project license remains MIT; dependency rights remain MPL-2.0. This specific reviewed case does not approve arbitrary MPL packages or future versions.
+
+Source and license are available in the exact source package:
+https://registry.npmjs.org/web-push/-/web-push-3.6.7.tgz
+
+The distribution retains the dependency's LICENSE and source package metadata. Public users receive this source/rights notice in `THIRD_PARTY_NOTICES.md` and the pinned package-lock. Any later binary bundling must retain the notice and access to the MPL-covered source; modifying or copying MPL source requires a new file-level license review. Existing prohibitions on GPL/AGPL/SSPL/unknown licenses are unchanged.
+
+Verified lock integrity: `sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==`.
+The dev-only `@types/web-push` **3.6.4** declarations are MIT and are not runtime crypto.
+
+Primary references: https://github.com/web-push-libs/web-push/blob/master/LICENSE and https://www.mozilla.org/en-US/MPL/2.0/FAQ/ (file-level licensing and source-access notices). **Blockers: 0** for the exact unmodified integration; this is an engineering distribution inventory, not a blanket legal opinion.

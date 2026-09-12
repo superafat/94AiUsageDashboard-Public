@@ -40,6 +40,35 @@ export const DEFAULT_ENABLED_FAMILIES = new Set<string>(
   PROVIDER_CATALOG.filter((c) => c.defaultEnabled).map((c) => c.family),
 );
 
+export const FAMILY_DISPLAY_NAMES: Record<KnownProviderFamily, string> = Object.fromEntries(
+  PROVIDER_CATALOG.map((c) => [c.family, c.name]),
+) as Record<KnownProviderFamily, string>;
+
+export const RESOURCE_DISPLAY_LABELS: Record<string, Record<string, string>> = {
+  codex: {
+    ...Object.fromEntries([['session', '5 小時額度']]),
+    weekly: '每週額度',
+    spark: 'Spark 5 小時',
+    sparkWeekly: 'Spark 每週',
+    'gpt-reserve': 'gpt-reserve',
+    gptReserve: 'gpt-reserve',
+    reserve: 'gpt-reserve',
+  },
+  antigravity: {
+    geminiSession: 'Gemini 5 小時',
+    geminiWeekly: 'Gemini 每週',
+    nonGeminiSession: '非 Gemini 5 小時',
+    nonGeminiWeekly: '非 Gemini 每週',
+  },
+  claude: {
+    ...Object.fromEntries([['session', '5 小時額度']]),
+    weekly: '每週額度',
+    fable: 'Fable 每週',
+    sonnet: 'Sonnet 每週',
+    extraUsage: '額外用量',
+  },
+};
+
 export function isKnownProviderFamily(family: string): family is KnownProviderFamily {
   return (KNOWN_PROVIDER_FAMILIES as readonly string[]).includes(family);
 }

@@ -71,14 +71,14 @@ service cloud.firestore {
         && (!('last30Days' in data.periods) || validPeriod(data.periods.last30Days))
         && ((!( 'storageVersion' in data) && !('chunkCount' in data) && !('dayCount' in data) && validDailyChunk(data.daily))
           || (data.storageVersion == 2 && data.daily == []
-            && data.dayCount is int && data.dayCount >= 0 && data.dayCount <= 35
-            && data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 7
+            && data.dayCount is int && data.dayCount >= 0 && data.dayCount <= 180
+            && data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 36
             && data.dayCount <= data.chunkCount * 5
             && ((data.dayCount == 0 && data.chunkCount == 0) || data.dayCount > (data.chunkCount - 1) * 5)));
     }
     function validHistoryChunk(uid, deviceId, providerId, chunkId) {
       let data = request.resource.data;
-      return chunkId.matches('^[0-6]$')
+      return chunkId.matches('^([0-9]|[12][0-9]|3[0-5])$')
         && data.keys().hasOnly(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'chunkId', 'daily'])
         && data.keys().hasAll(['schemaVersion', 'userId', 'deviceId', 'providerId', 'syncedAt', 'chunkId', 'daily'])
         && data.schemaVersion == 1 && data.userId == uid && data.deviceId == deviceId && data.providerId == providerId
@@ -142,6 +142,48 @@ service cloud.firestore {
         && (!('notifications' in data) || validNotifications(data.notifications));
     }
 
+    function validPushProducer(uid, deviceId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['schemaVersion', 'userId', 'deviceId', 'publicKey', 'updatedAt'])
+        && data.keys().hasAll(['schemaVersion', 'userId', 'deviceId', 'publicKey', 'updatedAt'])
+        && data.schemaVersion == 1
+        && data.userId == uid
+        && data.deviceId == deviceId
+        && data.publicKey is string
+        && data.publicKey.size() > 0
+        && data.publicKey.size() <= 256
+        && data.updatedAt is string
+        && data.updatedAt.size() <= 64
+        && validPreferenceTime(data.updatedAt);
+    }
+
+    function validPushSubscription(uid, browserId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'schemaVersion', 'userId', 'browserId', 'targetDeviceId', 'enrollmentEpoch',
+          'applicationServerKey', 'endpoint', 'p256dh', 'auth', 'createdAt', 'expiresAt',
+          'testRequestId', 'testRequestedAt'
+        ])
+        && data.keys().hasAll([
+          'schemaVersion', 'userId', 'browserId', 'targetDeviceId', 'enrollmentEpoch',
+          'applicationServerKey', 'endpoint', 'p256dh', 'auth', 'createdAt', 'expiresAt'
+        ])
+        && data.schemaVersion == 1
+        && data.userId == uid
+        && data.browserId == browserId
+        && data.targetDeviceId is string && data.targetDeviceId.size() > 0 && data.targetDeviceId.size() <= 128
+        && data.enrollmentEpoch is int && data.enrollmentEpoch >= 1
+        && data.applicationServerKey is string && data.applicationServerKey.size() > 0 && data.applicationServerKey.size() <= 256
+        && data.endpoint is string && data.endpoint.size() > 0 && data.endpoint.size() <= 2048
+        && data.endpoint.matches('^https://(fcm[.]googleapis[.]com|updates[.]push[.]services[.]mozilla[.]com|[a-zA-Z0-9.-]+[.]push[.]apple[.]com)/.*')
+        && data.p256dh is string && data.p256dh.size() > 0 && data.p256dh.size() <= 256
+        && data.auth is string && data.auth.size() > 0 && data.auth.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 64 && validPreferenceTime(data.createdAt)
+        && data.expiresAt is string && data.expiresAt.size() <= 64 && validPreferenceTime(data.expiresAt)
+        && (!('testRequestId' in data) || (data.testRequestId is string && data.testRequestId.size() <= 128))
+        && (!('testRequestedAt' in data) || (data.testRequestedAt is string && data.testRequestedAt.size() <= 64 && validPreferenceTime(data.testRequestedAt)));
+    }
+
     match /{path=**}/providers/{providerId} {
       allow list: if request.auth != null && resource.data.userId == request.auth.uid;
     }
@@ -158,7 +200,7 @@ service cloud.firestore {
     match /users/{uid}/devices/{deviceId}/history/{providerId}/historyChunks/{chunkId} {
       allow get, list: if signedInAs(uid);
       allow create, update: if signedInAs(uid) && validHistoryChunk(uid, deviceId, providerId, chunkId);
-      allow delete: if signedInAs(uid) && chunkId.matches('^[0-6]$');
+      allow delete: if signedInAs(uid) && chunkId.matches('^([0-9]|[12][0-9]|3[0-5])$');
     }
 
     match /users/{uid}/devices/{deviceId}/history/{providerId} {
@@ -188,6 +230,20 @@ service cloud.firestore {
       allow get, list: if signedInAs(uid);
       allow create, update: if signedInAs(uid) && validPreference(uid, family);
       allow delete: if false;
+    }
+
+    match /users/{uid}/pushProducers/{deviceId} {
+      allow get, list: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validPushProducer(uid, deviceId);
+      allow delete: if false;
+    }
+
+    match /users/{uid}/pushSubscriptions/{browserId} {
+      allow get, list: if signedInAs(uid);
+      allow create: if signedInAs(uid) && validPushSubscription(uid, browserId);
+      allow update: if signedInAs(uid) && validPushSubscription(uid, browserId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['testRequestId', 'testRequestedAt']);
+      allow delete: if signedInAs(uid);
     }
   }
 }

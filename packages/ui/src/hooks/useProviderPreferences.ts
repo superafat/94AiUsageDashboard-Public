@@ -13,6 +13,10 @@ export interface ProviderPreferencesState {
   isFamilySaving: (family: string) => boolean;
   familyError: (family: string) => string | undefined;
   setFamilyEnabled: (family: string, enabled: boolean) => Promise<void>;
+  isNotificationEnabled: (family: string, type: 'lowQuota' | 'reset') => boolean;
+  isNotificationSaving: (family: string, type: 'lowQuota' | 'reset') => boolean;
+  setNotificationPreference: (family: string, type: 'lowQuota' | 'reset', enabled: boolean) => Promise<void>;
+  notificationError: (family: string, type: 'lowQuota' | 'reset') => string | undefined;
 }
 
 type ScopedPreferencesState = {
@@ -54,6 +58,8 @@ export function useProviderPreferences(
   const [scoped, setScoped] = useState<ScopedPreferencesState>(() => initialScoped(generationRef.current, services, uid));
   const [savingFamilies, setSavingFamilies] = useState<Map<string, boolean>>(() => new Map());
   const [familyErrors, setFamilyErrors] = useState<Map<string, string>>(() => new Map());
+  const [savingNotifications, setSavingNotifications] = useState<Map<string, boolean>>(() => new Map());
+  const [notificationErrors, setNotificationErrors] = useState<Map<string, string>>(() => new Map());
 
   const matchesScope = scoped.generation === generationRef.current && scoped.services === services && scoped.uid === uid;
   const effectiveItems = matchesScope ? scoped.items : [];
@@ -69,6 +75,8 @@ export function useProviderPreferences(
     setScoped(initialScoped(currentGen, scopeServices, scopeUid));
     setSavingFamilies(new Map());
     setFamilyErrors(new Map());
+    setSavingNotifications(new Map());
+    setNotificationErrors(new Map());
 
     if (!scopeUid) return () => { active = false; };
 
@@ -204,6 +212,102 @@ export function useProviderPreferences(
     [uid, services],
   );
 
+  const isNotificationEnabled = useCallback(
+    (family: string, type: 'lowQuota' | 'reset'): boolean => {
+      if (!matchesScope) return false;
+      if (!scoped.hasObserved) return false;
+
+      const savingTarget = savingNotifications.get(`${family}:${type}`);
+      if (savingTarget === false) {
+        return false;
+      }
+
+      const item = effectiveItems.find((i) => i.family === family);
+      return item?.notifications?.[type] === true;
+    },
+    [matchesScope, scoped.hasObserved, savingNotifications, effectiveItems],
+  );
+
+  const isNotificationSaving = useCallback(
+    (family: string, type: 'lowQuota' | 'reset') => savingNotifications.has(`${family}:${type}`),
+    [savingNotifications],
+  );
+
+  const notificationError = useCallback(
+    (family: string, type: 'lowQuota' | 'reset') => notificationErrors.get(`${family}:${type}`),
+    [notificationErrors],
+  );
+
+  const setNotificationPreference = useCallback(
+    async (family: string, type: 'lowQuota' | 'reset', enabled: boolean): Promise<void> => {
+      if (!uid) {
+        throw new Error('User is not authenticated');
+      }
+      if (services.connectivity && services.connectivity.current() === 'offline') {
+        const msg = '網路離線，無法儲存設定';
+        setNotificationErrors((prev) => new Map(prev).set(`${family}:${type}`, msg));
+        throw new Error(msg);
+      }
+
+      const saveGeneration = generationRef.current;
+      const key = `${family}:${type}`;
+      setSavingNotifications((prev) => new Map(prev).set(key, enabled));
+      setNotificationErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+
+      try {
+        if (services.preferences) {
+          await services.preferences.setNotificationPreference(uid, family, { [type]: enabled });
+        } else {
+          // In-memory fallback for seam
+          if (generationRef.current === saveGeneration) {
+            setScoped((prev) => {
+              const existing = prev.items.find((i) => i.family === family);
+              const currentEnabled = existing?.enabled ?? resolveFamilyEnabled(family, {});
+              const currentNotifications = existing?.notifications ?? {};
+              const updatedItem: ProviderPreference = {
+                schemaVersion: 1,
+                userId: uid,
+                family,
+                enabled: currentEnabled,
+                updatedAt: new Date().toISOString(),
+                notifications: {
+                  ...currentNotifications,
+                  [type]: enabled,
+                },
+              };
+              return {
+                ...prev,
+                items: [
+                  ...prev.items.filter((i) => i.family !== family),
+                  updatedItem,
+                ],
+              };
+            });
+          }
+        }
+      } catch (err) {
+        if (generationRef.current === saveGeneration) {
+          const message = err instanceof Error ? err.message : String(err);
+          setNotificationErrors((prev) => new Map(prev).set(key, message));
+        }
+        throw err;
+      } finally {
+        if (generationRef.current === saveGeneration) {
+          setSavingNotifications((prev) => {
+            const next = new Map(prev);
+            next.delete(key);
+            return next;
+          });
+        }
+      }
+    },
+    [uid, services],
+  );
+
   return {
     status: effectiveStatus,
     items: effectiveItems,
@@ -212,5 +316,9 @@ export function useProviderPreferences(
     isFamilySaving,
     familyError,
     setFamilyEnabled,
+    isNotificationEnabled,
+    isNotificationSaving,
+    setNotificationPreference,
+    notificationError,
   };
 }

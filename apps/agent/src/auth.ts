@@ -79,7 +79,7 @@ export function buildFirebaseLoginPage(config: AgentAuthConfig): string {
   return `<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>94AiUsageDashboard 登入</title><style>body{font-family:system-ui,sans-serif;max-width:520px;margin:12vh auto;padding:24px;background:#fffaf3;color:#2d211c}button{min-height:52px;padding:0 20px;border:0;border-radius:12px;background:#b8762e;color:white;font-weight:700;font-size:16px}#status{margin-top:18px;line-height:1.5}</style></head>
-<body><h1>AI 額度儀表板</h1><p>請用和手機網站相同的 Google 帳號登入。完成後這台 Mac 就能自動同步額度。</p><button id="signin" autofocus>使用 Google 登入</button><p id="status">等待登入…</p>
+<body><h1>蜂神榜 Ai 額度儀表板</h1><p>請用和手機網站相同的 Google 帳號登入。完成後這台 Mac 就能自動同步額度。</p><button id="signin" autofocus>使用 Google 登入</button><p id="status">等待登入…</p>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';

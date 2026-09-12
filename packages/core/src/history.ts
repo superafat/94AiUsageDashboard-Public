@@ -1,4 +1,7 @@
-export type UsagePeriod = '1d' | '7d' | '30d';
+import { isValidCalendarDate } from './schema';
+
+export type UsagePeriod = '1d' | '7d' | '30d' | '90d' | '180d';
+export const HISTORY_HORIZON_DAYS = 180;
 
 export interface DailyUsageAggregate {
   date: string;
@@ -72,7 +75,7 @@ export function parseUsageHistorySnapshot(value: unknown): UsageHistorySnapshot 
   if (input.currency !== 'USD') throw new Error('history currency must be USD');
   if (typeof input.syncedAt !== 'string' || !Number.isFinite(Date.parse(input.syncedAt))) throw new Error('history syncedAt must be ISO timestamp');
   if (!Array.isArray(input.daily)) throw new Error('history daily must be an array');
-  if (input.daily.length > 35) throw new Error('history daily must contain at most 35 days');
+  if (input.daily.length > HISTORY_HORIZON_DAYS) throw new Error(`history daily must contain at most ${HISTORY_HORIZON_DAYS} days`);
   const daily = input.daily.map(parseDaily);
   if (new Set(daily.map((item) => item.date)).size !== daily.length) throw new Error('history contains duplicate daily dates');
   const periodsInput = object(input.periods, 'history.periods');
@@ -93,11 +96,54 @@ export function parseUsageHistorySnapshot(value: unknown): UsageHistorySnapshot 
   };
 }
 
-function localDateKey(date: Date): string {
+export function toLocalDateKey(dateOrIso: Date | string | number, timeZone?: string): string {
+  const date = typeof dateOrIso === 'object' && dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
+  if (!Number.isFinite(date.getTime())) throw new Error('Invalid date');
+  if (timeZone) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function dateKeyToUtcOrdinal(dateKey: string): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!isValidCalendarDate(year, month, day)) return undefined;
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+}
+
+export function calendarDayDifference(fromKey: string, toKey: string): number | undefined {
+  const fromOrd = dateKeyToUtcOrdinal(fromKey);
+  const toOrd = dateKeyToUtcOrdinal(toKey);
+  if (fromOrd === undefined || toOrd === undefined) return undefined;
+  return toOrd - fromOrd;
+}
+
+export function shiftDateKey(dateKey: string, daysDelta: number): string {
+  const ord = dateKeyToUtcOrdinal(dateKey);
+  if (ord === undefined) throw new Error(`Invalid date key: ${dateKey}`);
+  return new Date((ord + daysDelta) * 86_400_000).toISOString().slice(0, 10);
+}
+
+export function isWithinCalendarWindow(candidateKey: string, anchorKey: string, windowDays: number = HISTORY_HORIZON_DAYS): boolean {
+  const diff = calendarDayDifference(candidateKey, anchorKey);
+  if (diff === undefined) return false;
+  return diff >= 0 && diff <= (windowDays - 1);
+}
+
+function localDateKey(date: Date): string {
+  return toLocalDateKey(date);
 }
 function recentDateKeys(now: Date, count: number): string[] {
   return Array.from({ length: count }, (_, index) => {
@@ -107,27 +153,31 @@ function recentDateKeys(now: Date, count: number): string[] {
 }
 
 export function summarizeHistory(snapshot: UsageHistorySnapshot, period: UsagePeriod, now: Date): UsagePeriodSummary {
+  const nowDateKey = localDateKey(now);
+  const periodSourceIsCurrent = toLocalDateKey(snapshot.syncedAt) === nowDateKey;
+
   if (period === '1d') {
-    const today = snapshot.daily.find((item) => item.date === localDateKey(now));
-    const source = snapshot.periods.today;
+    const today = snapshot.daily.find((item) => item.date === nowDateKey);
+    const source = periodSourceIsCurrent ? snapshot.periods.today : undefined;
     const tokens = today?.tokens ?? source?.tokens ?? 0;
     const estimatedCostUsd = source?.estimatedCostUsd ?? today?.estimatedCostUsd;
     return { tokens, ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }), costComplete: estimatedCostUsd !== undefined, daysWithData: today || source ? 1 : 0 };
   }
   if (period === '30d') {
-    const source = snapshot.periods.last30Days;
+    const source = periodSourceIsCurrent ? snapshot.periods.last30Days : undefined;
     const keys = new Set(recentDateKeys(now, 30));
     const daily = snapshot.daily.filter((item) => keys.has(item.date));
-    const tokens = source?.tokens ?? daily.reduce((sum, item) => sum + item.tokens, 0);
+    const tokens = daily.reduce((sum, item) => sum + item.tokens, 0);
     const estimatedCostUsd = source?.estimatedCostUsd;
     return { tokens, ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }), costComplete: estimatedCostUsd !== undefined, daysWithData: daily.length };
   }
 
-  const keys = new Set(recentDateKeys(now, 7));
+  const count = period === '7d' ? 7 : period === '90d' ? 90 : 180;
+  const keys = new Set(recentDateKeys(now, count));
   const daily = snapshot.daily.filter((item) => keys.has(item.date));
   const byDate = new Map(daily.map((item) => [item.date, item]));
-  const selected = recentDateKeys(now, 7).map((key) => byDate.get(key));
-  const tokens = selected.reduce((sum, item) => sum + (item?.tokens ?? 0), 0);
+  const selected = recentDateKeys(now, count).map((key) => byDate.get(key));
+  const tokens = daily.reduce((sum, item) => sum + item.tokens, 0);
   const complete = selected.every((item) => item !== undefined && (item.estimatedCostUsd !== undefined || item.tokens === 0));
   const estimatedCostUsd = complete ? selected.reduce((sum, item) => sum + (item?.estimatedCostUsd ?? 0), 0) : undefined;
   return { tokens, ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }), costComplete: complete, daysWithData: daily.length };

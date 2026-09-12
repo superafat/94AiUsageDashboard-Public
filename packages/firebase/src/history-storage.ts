@@ -1,7 +1,7 @@
-import { parseUsageHistorySnapshot, type DailyUsageAggregate, type UsageHistorySnapshot } from '@94ai/core';
+import { parseUsageHistorySnapshot, HISTORY_HORIZON_DAYS, type DailyUsageAggregate, type UsageHistorySnapshot } from '@94ai/core';
 
 export const HISTORY_CHUNK_SIZE = 5;
-export const HISTORY_MAX_CHUNKS = 7;
+export const HISTORY_MAX_CHUNKS = Math.ceil(HISTORY_HORIZON_DAYS / HISTORY_CHUNK_SIZE);
 export interface UsageHistorySummary extends UsageHistorySnapshot {
   storageVersion: 2;
   chunkCount: number;
@@ -24,7 +24,7 @@ function record(value: unknown): Record<string, unknown> {
 export function parseHistoryChunk(value: unknown): UsageHistoryChunk {
   const input = record(value);
   for (const key of Object.keys(input)) if (!CHUNK_FIELDS.has(key)) throw new Error(`unknown history chunk field: ${key}`);
-  if (typeof input.chunkId !== 'string' || !/^[0-6]$/.test(input.chunkId)) throw new Error('history chunk ID invalid');
+  if (typeof input.chunkId !== 'string' || !/^(?:[0-9]|[12][0-9]|3[0-5])$/.test(input.chunkId)) throw new Error('history chunk ID invalid');
   if (!Array.isArray(input.daily) || input.daily.length < 1 || input.daily.length > HISTORY_CHUNK_SIZE) throw new Error('history chunk size invalid');
   const parsed = parseUsageHistorySnapshot({ schemaVersion: input.schemaVersion, userId: input.userId, deviceId: input.deviceId,
     providerId: input.providerId, syncedAt: input.syncedAt, currency: 'USD', periods: {}, daily: input.daily });
@@ -35,7 +35,7 @@ export function parseHistorySummary(value: unknown): UsageHistorySnapshot | Usag
   const input = record(value);
   if (!('storageVersion' in input)) return parseUsageHistorySnapshot(input);
   const { storageVersion, chunkCount, dayCount, ...canonical } = input;
-  if (storageVersion !== 2 || typeof dayCount !== 'number' || !Number.isInteger(dayCount) || dayCount < 0 || dayCount > 35
+  if (storageVersion !== 2 || typeof dayCount !== 'number' || !Number.isInteger(dayCount) || dayCount < 0 || dayCount > HISTORY_HORIZON_DAYS
     || chunkCount !== Math.ceil(dayCount / HISTORY_CHUNK_SIZE)) throw new Error('history storage manifest invalid');
   const parsed = parseUsageHistorySnapshot(canonical);
   if (parsed.daily.length) throw new Error('chunked history summary must have empty daily');

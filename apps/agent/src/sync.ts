@@ -10,6 +10,7 @@ import { getOrCreateDeviceId } from './device-id';
 import { buildHistorySnapshot, mergeHistory } from './history-sync';
 import { backgroundSyncInstalled } from './background';
 import { readPreferredLimits } from './engine-select';
+import { runPushNotificationSync } from './push-runtime';
 
 import { SENSITIVE_PATTERN } from '@94ai/core';
 
@@ -87,6 +88,13 @@ export interface SyncDependencies {
   writeHistory?: (auth: AuthenticatedFirebaseContext, snapshot: UsageHistorySnapshot, signal?: AbortSignal) => Promise<void>;
   backgroundReady?: (signal?: AbortSignal) => Promise<boolean>;
   writeHealth?: (auth: AuthenticatedFirebaseContext, snapshot: DeviceHealthSnapshot, signal?: AbortSignal) => Promise<void>;
+  syncPushNotifications?: (
+    auth: AuthenticatedFirebaseContext,
+    deviceId: string,
+    snapshots: UsageSnapshot[],
+    preferences: ProviderPreference[],
+    signal?: AbortSignal,
+  ) => Promise<void>;
   timeoutMs?: number;
 }
 
@@ -97,6 +105,7 @@ export interface SyncResult {
   historyErrorCode?: 'history_source_unavailable' | 'history_write_failed';
   providerErrorCode?: 'provider_write_failed';
   preferenceErrorCode?: 'preferences_read_failed';
+  pushErrorCode?: 'push_dispatch_failed' | 'push_keys_failed';
   failedProviders?: string[];
   partialFailure?: boolean;
 }
@@ -235,6 +244,19 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
         // Health is advisory. Never make a successful quota sync fail because health reporting failed.
       }
     }
+    let pushErrorCode: SyncResult['pushErrorCode'];
+    if (deps.syncPushNotifications) {
+      try {
+        await withTimeout(
+          (signal) => deps.syncPushNotifications!(auth, deviceId, successfulSnapshots, activePreferences ?? [], signal),
+          timeoutMs,
+          'syncPushNotifications',
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        pushErrorCode = msg.includes('keys') ? 'push_keys_failed' : 'push_dispatch_failed';
+      }
+    }
     const hasProviderFailures = failedProviders.length > 0;
     return {
       providerCount: providerSuccessCount,
@@ -243,6 +265,7 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
       ...(hasProviderFailures ? { providerErrorCode: 'provider_write_failed' as const, failedProviders } : {}),
       ...(hasProviderFailures && providerSuccessCount > 0 ? { partialFailure: true } : {}),
       ...(historyErrorCode ? { historyErrorCode } : {}),
+      ...(pushErrorCode ? { pushErrorCode } : {}),
     };
   } finally {
     await auth.close();
@@ -275,6 +298,24 @@ export async function runSync(
     writeHistory: (auth, snapshot, signal) => writeUsageHistoryRest(config.firebase.projectId, auth.idToken, snapshot, fetch, signal),
     backgroundReady: () => backgroundSyncInstalled(),
     writeHealth: (auth, snapshot, signal) => writeDeviceHealthRest(config.firebase.projectId, auth.idToken, snapshot, fetch, signal),
+    syncPushNotifications: async (auth, deviceId, snapshots, preferences, signal) => {
+      const pushRes = await runPushNotificationSync({
+        backendId: config.firebase.projectId,
+        userId: auth.uid,
+        deviceId,
+        projectId: config.firebase.projectId,
+        idToken: auth.idToken,
+        snapshots,
+        preferences,
+        ...(signal ? {signal} : {}),
+      });
+      if (pushRes.status === 'keys_failed') {
+        throw new Error('keys_failed');
+      }
+      if (pushRes.status === 'error') {
+        throw new Error('push_dispatch_failed');
+      }
+    },
   });
   await writeLastSync(result);
   return result;

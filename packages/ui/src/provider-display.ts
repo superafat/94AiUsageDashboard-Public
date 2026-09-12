@@ -1,39 +1,17 @@
 import {
   isKnownProviderFamily,
   providerFamilyOf,
+  FAMILY_DISPLAY_NAMES,
+  RESOURCE_DISPLAY_LABELS,
   type KnownProviderFamily,
   type UsageSnapshot,
 } from '@94ai/core';
 
 export type ProviderFamily = KnownProviderFamily | 'other';
 
-export const FAMILY_DISPLAY_NAMES: Record<KnownProviderFamily, string> = {
-  codex: 'Codex',
-  antigravity: 'Antigravity',
-  claude: 'Claude Code',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-  devin: 'Devin',
-  grok: 'Grok',
-  ollama: 'Ollama (Cloud)',
-  opencode: 'OpenCode',
-  openrouter: 'OpenRouter',
-  zai: 'Zai',
-};
+export { FAMILY_DISPLAY_NAMES };
 
-const LABELS: Record<string, Record<string, string>> = {
-  codex: {
-    session: '5 小時額度', weekly: '每週額度', spark: 'Spark 5 小時', sparkWeekly: 'Spark 每週',
-    'gpt-reserve': 'gpt-reserve', gptReserve: 'gpt-reserve', reserve: 'gpt-reserve',
-  },
-  antigravity: {
-    geminiSession: 'Gemini 5 小時', geminiWeekly: 'Gemini 每週',
-    nonGeminiSession: '非 Gemini 5 小時', nonGeminiWeekly: '非 Gemini 每週',
-  },
-  claude: {
-    session: '5 小時額度', weekly: '每週額度', fable: 'Fable 每週', sonnet: 'Sonnet 每週', extraUsage: '額外用量',
-  },
-};
+const LABELS: Record<string, Record<string, string>> = RESOURCE_DISPLAY_LABELS;
 
 const ORDER: Record<string, string[]> = {
   codex: ['session', 'weekly', 'spark', 'sparkWeekly', 'gpt-reserve', 'gptReserve', 'reserve', 'credits', 'creditValue'],

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { auditPublicTree, auditGitHistory } from './audit-public-release.mjs';
 import { exportPublicRelease } from './export-public-release.mjs';
@@ -21,6 +21,92 @@ import { runCleanExportAcceptance } from '../tests/clean-public-export-acceptanc
 export const REVIEWED_HISTORY_BASELINE = loadPrivateReleaseBaseline().history;
 
 const HEX_COMMIT_40_REGEX = /^[0-9a-fA-F]{40}$/;
+
+// Public Git history reviewed through this commit. Existing metadata is preserved as history;
+// every newer public-source commit must use a non-personal GitHub noreply identity.
+export const PUBLIC_COMMIT_METADATA_BASELINE = '11a4e998ff36a12e7a7882f0ba1c4ce864acc3bc';
+const SAFE_PUBLIC_GIT_EMAIL = /^(?:[^@\s]+@users\.noreply\.github\.com|noreply@github\.com)$/i;
+
+function gitText(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+}
+
+function isCanonicalPublicRemote(cwd) {
+  try {
+    const origin = gitText(cwd, ['remote', 'get-url', 'origin']);
+    return /(?:github\.com[:/])superafat\/94AiUsageDashboard-Public(?:\.git)?$/i.test(origin);
+  } catch {
+    return false;
+  }
+}
+
+function baselineTracksPublicManifest(cwd, baseline) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${baseline}:PUBLIC_EXPORT_MANIFEST.sha256`], { cwd, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function auditPublicCandidateCommitMetadata(cwd, options = {}) {
+  const repoCwd = path.resolve(cwd);
+  const baselineRef = options.baselineRef ?? PUBLIC_COMMIT_METADATA_BASELINE;
+  const candidateRef = options.candidateRef ?? process.env.PUBLIC_RELEASE_HEAD_SHA ?? 'HEAD';
+  const knownPublicRemote = options.publicRepository === true || isCanonicalPublicRemote(repoCwd);
+  let baseline;
+  try {
+    baseline = gitText(repoCwd, ['rev-parse', `${baselineRef}^{commit}`]);
+  } catch {
+    if (!knownPublicRemote) return { applicable: false, findings: [] };
+    return {
+      applicable: true,
+      findings: [{ severity: 'BLOCKER', category: 'commit_metadata', path: 'git-history', commit: 'unknown', role: 'baseline' }],
+    };
+  }
+
+  const baselineIsPublic = baselineTracksPublicManifest(repoCwd, baseline);
+  if (!baselineIsPublic) {
+    if (!knownPublicRemote) return { applicable: false, findings: [] };
+    return {
+      applicable: true,
+      findings: [{ severity: 'BLOCKER', category: 'commit_metadata', path: 'git-history', commit: baseline, role: 'baseline-manifest' }],
+    };
+  }
+
+  let candidate;
+  try {
+    candidate = gitText(repoCwd, ['rev-parse', `${candidateRef}^{commit}`]);
+  } catch {
+    return {
+      applicable: true,
+      findings: [{ severity: 'BLOCKER', category: 'commit_metadata', path: 'git-history', commit: 'unknown', role: 'candidate' }],
+    };
+  }
+
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', baseline, candidate], { cwd: repoCwd, stdio: 'ignore' });
+  } catch {
+    return {
+      applicable: true,
+      findings: [{ severity: 'BLOCKER', category: 'commit_metadata', path: 'git-history', commit: candidate, role: 'ancestry' }],
+    };
+  }
+
+  const range = `${baseline}..${candidate}`;
+  const commits = gitText(repoCwd, ['rev-list', '--reverse', range]).split(/\r?\n/).filter(Boolean);
+  const findings = [];
+  for (const commit of commits) {
+    const [authorEmail = '', committerEmail = ''] = gitText(repoCwd, ['show', '-s', '--format=%ae%n%ce', commit]).split(/\r?\n/);
+    if (!SAFE_PUBLIC_GIT_EMAIL.test(authorEmail)) {
+      findings.push({ severity: 'BLOCKER', category: 'commit_email', path: 'git-author', commit, role: 'author' });
+    }
+    if (!SAFE_PUBLIC_GIT_EMAIL.test(committerEmail)) {
+      findings.push({ severity: 'BLOCKER', category: 'commit_email', path: 'git-committer', commit, role: 'committer' });
+    }
+  }
+  return { applicable: true, baseline, candidate, findings };
+}
 
 /**
  * Checks if a finding is covered by an entry in the reviewed baseline.
@@ -141,6 +227,25 @@ export async function verifyPublicRelease(options = {}) {
       };
     }
     log(`PASS audit:history (${historyCheck.reviewedCount} reviewed findings, 0 unreviewed)`);
+  }
+
+  // Public-repository commit metadata gate. Private engineering repos and non-Git clean exports are not applicable.
+  if (!options.skipCommitMetadata) {
+    log('RUN audit:commit-metadata');
+    const metadataAudit = options.mockCommitMetadataFindings
+      ? { applicable: true, findings: options.mockCommitMetadataFindings }
+      : auditPublicCandidateCommitMetadata(repoCwd, options);
+    if (metadataAudit.findings.length > 0) {
+      logErr(`FAIL audit:commit-metadata (${metadataAudit.findings.length} blockers detected)`);
+      for (const finding of metadataAudit.findings) logErr(`  - ${formatBoundedFinding(finding)}`);
+      return {
+        success: false,
+        failedStep: 'audit:commit-metadata',
+        error: 'Unsafe public commit metadata detected',
+        commitMetadataBlockersCount: metadataAudit.findings.length,
+      };
+    }
+    log(metadataAudit.applicable ? 'PASS audit:commit-metadata' : 'PASS audit:commit-metadata (not applicable)');
   }
 
   // Step 3: Clean public export and export audit

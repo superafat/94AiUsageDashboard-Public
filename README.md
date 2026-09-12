@@ -13,7 +13,7 @@
 
 94AiUsageDashboard 讓你快速看懂目前 AI 工具的**剩餘額度、重置時間、近期 Token 使用量、估算 API 等值費用與同步健康狀態**。介面以手機與桌面都好讀為目標，重要資訊先顯示，不需要先理解底層資料結構。
 
-目前公開版本：**v0.1.3**。
+最新正式公開 Release：**v0.1.3**。目前 `main`／App 開發版本為 **v0.1.4**，尚未建立 v0.1.4 正式 Release。
 
 ## 你可以看到什麼
 
@@ -62,6 +62,18 @@ Provider 詳細頁保留來源真正提供的資訊。缺少數值就省略或�
 | **Claude Code** | Session、Weekly，以及來源有提供時的模型／Extra Usage 類資源 |
 
 實際欄位以 OpenUsage 能穩定取得的資料為準；來源沒有提供的數值，Dashboard 不會自行推測。
+
+## 推播通知設定
+
+在「設定 → 推播通知」提供 **iPhone** 與 **Android** 專屬的設定教學：
+
+- **iPhone 使用者**：須透過 Safari「加入主畫面」以 PWA 形式啟動後，再前往設定啟用推播。
+- **Android 使用者**：建議使用 Chrome 瀏覽器安裝應用程式或加入主畫面後啟用推播。
+- 支援個別 AI 服務的「每耗用 10% 通知」與「額度重置通知」。
+- 由 Mac Companion 同步程式約每 5 分鐘檢查一次額度變動；推播服務受理不等於裝置已實際顯示通知。
+
+完整平台步驟與常見問題排查請參閱 [`docs/notifications.md`](docs/notifications.md)。
+
 
 ## 它怎麼運作
 
@@ -213,6 +225,7 @@ npm run verify:public-release
 ## 文件
 
 - [Getting Started](docs/getting-started.md)
+- [Push Notifications](docs/notifications.md)
 - [AI-assisted Install](AI_INSTALL.md)
 - [macOS Install](docs/install-macos.md)
 - [Privacy Model](docs/privacy-model.md)

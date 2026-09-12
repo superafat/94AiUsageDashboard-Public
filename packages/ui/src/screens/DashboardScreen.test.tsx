@@ -34,7 +34,7 @@ function history(): UsageHistorySnapshot {
 describe('DashboardScreen', () => {
   it('renders the approved product hierarchy instead of the old endless provider list', () => {
     render(<DashboardScreen userName="陳大利" items={[codex, antigravity]} historyItems={[history()]} now={new Date('2026-09-06T09:01:00.000Z')} offline={false} onNavigate={() => undefined} />);
-    expect(screen.getByRole('heading', { name: 'AI 額度儀表板' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '蜂神榜 Ai 額度儀表板' })).toBeInTheDocument();
     expect(screen.getByText('掌握使用情況，讓 AI 陪你走得更遠')).toBeInTheDocument();
     expect(screen.getByText('善用 AI，創造更多可能')).toBeInTheDocument();
     const codexCard = screen.getByRole('region', { name: 'Codex 額度' });

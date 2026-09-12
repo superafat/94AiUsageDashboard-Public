@@ -34,13 +34,14 @@ test('package.json defines verify:public-release script', () => {
   );
 });
 
-test('.github/workflows/ci.yml wires verify:public-release into CI workflow on pull requests and main with --skip-public-ready', () => {
+test('.github/workflows/ci.yml is manual-only so GitHub Actions cannot consume quota without explicit Owner approval', () => {
   const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github/workflows/ci.yml'), 'utf8');
-  assert.match(workflow, /npm run verify:public-release -- --skip-public-ready/, 'ci.yml must run verify:public-release with --skip-public-ready to avoid double execution');
-  assert.match(workflow, /npm run verify:public-ready/, 'ci.yml must maintain verify:public-ready compatibility');
-  assert.doesNotMatch(workflow, /npm run verify:public-release\s*$/, 'ci.yml must not run bare verify:public-release without --skip-public-ready');
-  assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/, 'workflow must trigger on push to main');
-  assert.match(workflow, /pull_request:/, 'workflow must trigger on pull_request');
+  assert.match(workflow, /workflow_dispatch:/, 'workflow may exist only as an explicitly triggered exception path');
+  assert.doesNotMatch(workflow, /(^|\n)\s*push:/m, 'automatic push-triggered GitHub Actions are forbidden');
+  assert.doesNotMatch(workflow, /(^|\n)\s*pull_request:/m, 'automatic PR-triggered GitHub Actions are forbidden');
+  assert.match(workflow, /npm run verify:public-release -- --skip-public-ready/, 'manual exception path must preserve release verification');
+  assert.match(workflow, /npm run verify:public-ready/, 'manual exception path must preserve public-ready verification');
+  assert.match(workflow, /PUBLIC_RELEASE_HEAD_SHA/, 'manual exception path must bind publication audit to the selected exact SHA');
 });
 
 test('scripts/verify-public-release.mjs exists and exports canonical API, parseArgs, and reviewed history baseline', async () => {
@@ -52,6 +53,7 @@ test('scripts/verify-public-release.mjs exists and exports canonical API, parseA
   assert.equal(typeof mod.checkHistoryAgainstBaseline, 'function', 'must export checkHistoryAgainstBaseline');
   assert.equal(typeof mod.matchesBaseline, 'function', 'must export matchesBaseline');
   assert.equal(typeof mod.parseArgs, 'function', 'must export parseArgs');
+  assert.equal(typeof mod.auditPublicCandidateCommitMetadata, 'function', 'must export commit-metadata audit');
   assert.ok(Array.isArray(mod.REVIEWED_HISTORY_BASELINE), 'must export REVIEWED_HISTORY_BASELINE array');
   const privateBaselinePath = path.join(ROOT_DIR, 'docs/evidence/v0.1.2-private-release-baseline.json');
   if (fs.existsSync(privateBaselinePath)) {
@@ -97,6 +99,99 @@ test('parseArgs parses CLI arguments and flags correctly', async () => {
 
   const cwdParsed = parseArgs(['--cwd', '/tmp']);
   assert.equal(cwdParsed.cwd, path.resolve('/tmp'));
+});
+
+test('public candidate commit metadata rejects personal email and accepts GitHub noreply without rewriting reviewed base history', async () => {
+  const scriptPath = path.join(ROOT_DIR, 'scripts/verify-public-release.mjs');
+  const { auditPublicCandidateCommitMetadata } = await import(`file://${scriptPath}`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '94aiusage-public-meta-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: tmp });
+    execFileSync('git', ['config', 'user.name', 'Legacy Public Author'], { cwd: tmp });
+    const legacyEmail = ['legacy', 'example.invalid'].join('@');
+    execFileSync('git', ['config', 'user.email', legacyEmail], { cwd: tmp });
+    fs.writeFileSync(path.join(tmp, 'PUBLIC_EXPORT_MANIFEST.sha256'), '# source_commit: 0000000000000000000000000000000000000000\n');
+    fs.writeFileSync(path.join(tmp, 'README.md'), 'base\n');
+    execFileSync('git', ['add', '.'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'legacy reviewed base'], { cwd: tmp });
+    const baseline = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+
+    const personalEmail = ['personal', 'example.invalid'].join('@');
+    execFileSync('git', ['config', 'user.email', personalEmail], { cwd: tmp });
+    fs.appendFileSync(path.join(tmp, 'README.md'), 'unsafe\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'unsafe candidate'], { cwd: tmp });
+    const unsafe = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+    const unsafeResult = auditPublicCandidateCommitMetadata(tmp, { baselineRef: baseline, candidateRef: unsafe });
+    assert.equal(unsafeResult.applicable, true);
+    assert.equal(unsafeResult.findings.length, 2, 'author and committer personal emails must both fail closed');
+    assert.ok(unsafeResult.findings.every((finding) => !JSON.stringify(finding).includes(personalEmail)), 'findings must not echo the email');
+
+    execFileSync('git', ['reset', '--hard', '-q', baseline], { cwd: tmp });
+    execFileSync('git', ['config', 'user.email', personalEmail], { cwd: tmp });
+    execFileSync('git', ['rm', '-q', 'PUBLIC_EXPORT_MANIFEST.sha256'], { cwd: tmp });
+    fs.appendFileSync(path.join(tmp, 'README.md'), 'unsafe manifest removal\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'unsafe manifest removal'], { cwd: tmp });
+    const unsafeWithoutManifest = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+    const deletedManifestResult = auditPublicCandidateCommitMetadata(tmp, { baselineRef: baseline, candidateRef: unsafeWithoutManifest });
+    assert.equal(deletedManifestResult.applicable, true, 'candidate-controlled manifest deletion must not disable metadata audit');
+    assert.equal(deletedManifestResult.findings.length, 2, 'manifest deletion must still reject unsafe author and committer identities');
+
+    execFileSync('git', ['reset', '--hard', '-q', baseline], { cwd: tmp });
+    const noreplyEmail = ['223890005+superafat', 'users.noreply.github.com'].join('@');
+    execFileSync('git', ['config', 'user.email', noreplyEmail], { cwd: tmp });
+    fs.appendFileSync(path.join(tmp, 'README.md'), 'safe\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'safe candidate'], { cwd: tmp });
+    const safe = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+    const safeResult = auditPublicCandidateCommitMetadata(tmp, { baselineRef: baseline, candidateRef: safe });
+    assert.equal(safeResult.applicable, true);
+    assert.deepEqual(safeResult.findings, []);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('public commit metadata gate still applies when an unsafe candidate deletes the public manifest', async () => {
+  const scriptPath = path.join(ROOT_DIR, 'scripts/verify-public-release.mjs');
+  const { auditPublicCandidateCommitMetadata } = await import(`file://${scriptPath}`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '94aiusage-public-meta-delete-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: tmp });
+    execFileSync('git', ['config', 'user.name', 'Reviewed Public Base'], { cwd: tmp });
+    execFileSync('git', ['config', 'user.email', ['legacy', 'example.invalid'].join('@')], { cwd: tmp });
+    fs.writeFileSync(path.join(tmp, 'PUBLIC_EXPORT_MANIFEST.sha256'), '# source_commit: 0000000000000000000000000000000000000000\n');
+    fs.writeFileSync(path.join(tmp, 'README.md'), 'base\n');
+    execFileSync('git', ['add', '.'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'reviewed public base'], { cwd: tmp });
+    const baseline = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+
+    execFileSync('git', ['config', 'user.email', ['personal', 'example.invalid'].join('@')], { cwd: tmp });
+    fs.rmSync(path.join(tmp, 'PUBLIC_EXPORT_MANIFEST.sha256'));
+    execFileSync('git', ['add', '-A'], { cwd: tmp });
+    execFileSync('git', ['commit', '-q', '-m', 'delete manifest to bypass gate'], { cwd: tmp });
+    const candidate = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+
+    const result = auditPublicCandidateCommitMetadata(tmp, { baselineRef: baseline, candidateRef: candidate });
+    assert.equal(result.applicable, true, 'reviewed public baseline makes the gate applicable even if candidate deletes manifest');
+    assert.equal(result.findings.length, 2, 'unsafe author and committer metadata must still be blocked');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('verifyPublicRelease fails closed on unsafe public candidate commit metadata', async () => {
+  const { verifyPublicRelease } = await import('../scripts/verify-public-release.mjs');
+  const result = await verifyPublicRelease({
+    cwd: ROOT_DIR,
+    skipTree: true, skipHistory: true, skipExport: true, skipCleanExport: true,
+    skipDocs: true, skipLicense: true, skipAudit: true, skipPublicReady: true,
+    mockCommitMetadataFindings: [{ severity: 'BLOCKER', category: 'commit_email', commit: 'a'.repeat(40), role: 'author' }],
+    verbose: false,
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.failedStep, 'audit:commit-metadata');
 });
 
 test('matchesBaseline strictly validates non-empty hex commit (>=7 chars) and never fails open', async () => {

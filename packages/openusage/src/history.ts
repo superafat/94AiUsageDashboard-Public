@@ -1,4 +1,12 @@
-import { isValidCalendarDate, type DailyUsageAggregate, type UsagePeriodAggregate } from '@94ai/core';
+import {
+  isValidCalendarDate,
+  HISTORY_HORIZON_DAYS,
+  toLocalDateKey,
+  shiftDateKey,
+  isWithinCalendarWindow,
+  type DailyUsageAggregate,
+  type UsagePeriodAggregate,
+} from '@94ai/core';
 
 export interface ProviderHistoryInput {
   providerId: string;
@@ -16,14 +24,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function dateKeyBefore(now: Date, daysAgo: number): string {
-  return localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, 12));
-}
-
 const MONTH_NAMES: Record<string, number> = {
   jan: 1, january: 1,
   feb: 2, february: 2,
@@ -39,25 +39,27 @@ const MONTH_NAMES: Record<string, number> = {
   dec: 12, december: 12,
 };
 
-const MAX_BACKWARD_HISTORY_DAYS = 120;
-
 function resolveHistoricalDate(
   month: number,
   day: number,
   refDate: Date,
+  collectorNowDateKey: string,
   explicitYear?: number,
 ): string | undefined {
+  const sourceAnchorKey = toLocalDateKey(refDate);
+
   if (explicitYear !== undefined) {
     if (!isValidCalendarDate(explicitYear, month, day)) return undefined;
-    return `${explicitYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const explicitKey = `${explicitYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (explicitKey > sourceAnchorKey) return undefined;
+    return isWithinCalendarWindow(explicitKey, collectorNowDateKey, HISTORY_HORIZON_DAYS) ? explicitKey : undefined;
   }
 
   const refYear = refDate.getFullYear();
-  const refDateKey = localDateKey(refDate);
 
   if (isValidCalendarDate(refYear, month, day)) {
     const currentKey = `${refYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (currentKey <= refDateKey) {
+    if (currentKey <= sourceAnchorKey && isWithinCalendarWindow(currentKey, collectorNowDateKey, HISTORY_HORIZON_DAYS)) {
       return currentKey;
     }
   }
@@ -65,10 +67,7 @@ function resolveHistoricalDate(
   const prevYear = refYear - 1;
   if (isValidCalendarDate(prevYear, month, day)) {
     const prevKey = `${prevYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const refNoon = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate(), 12).getTime();
-    const prevNoon = new Date(prevYear, month - 1, day, 12).getTime();
-    const daysAgo = (refNoon - prevNoon) / (24 * 60 * 60 * 1000);
-    if (daysAgo >= 0 && daysAgo <= MAX_BACKWARD_HISTORY_DAYS) {
+    if (prevKey <= sourceAnchorKey && isWithinCalendarWindow(prevKey, collectorNowDateKey, HISTORY_HORIZON_DAYS)) {
       return prevKey;
     }
   }
@@ -76,7 +75,9 @@ function resolveHistoricalDate(
   return undefined;
 }
 
-function parsePointDate(point: Record<string, unknown>, refDate: Date): string | undefined {
+function parsePointDate(point: Record<string, unknown>, refDate: Date, collectorNowDateKey: string): string | undefined {
+  const sourceAnchorKey = toLocalDateKey(refDate);
+
   if (typeof point.date === 'string') {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(point.date);
     if (match) {
@@ -84,7 +85,9 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
       const month = Number(match[2]);
       const day = Number(match[3]);
       if (isValidCalendarDate(year, month, day)) {
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (key > sourceAnchorKey) return undefined;
+        return isWithinCalendarWindow(key, collectorNowDateKey, HISTORY_HORIZON_DAYS) ? key : undefined;
       }
     }
   }
@@ -99,7 +102,9 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
     const month = Number(isoMatch[2]);
     const day = Number(isoMatch[3]);
     if (isValidCalendarDate(year, month, day)) {
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (key > sourceAnchorKey) return undefined;
+      return isWithinCalendarWindow(key, collectorNowDateKey, HISTORY_HORIZON_DAYS) ? key : undefined;
     }
     return undefined;
   }
@@ -109,7 +114,7 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
   if (zhMatch) {
     const month = Number(zhMatch[1]);
     const day = Number(zhMatch[2]);
-    return resolveHistoricalDate(month, day, refDate);
+    return resolveHistoricalDate(month, day, refDate, collectorNowDateKey);
   }
 
   // English format: "Sep 5" or "5 Sep" with optional year
@@ -120,7 +125,7 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
     if (!month) return undefined;
     const day = Number(enMonthDayMatch[2]);
     const explicitYear = enMonthDayMatch[3] ? Number(enMonthDayMatch[3]) : undefined;
-    return resolveHistoricalDate(month, day, refDate, explicitYear);
+    return resolveHistoricalDate(month, day, refDate, collectorNowDateKey, explicitYear);
   }
 
   // English format: "5 Sep 2026"
@@ -131,7 +136,7 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
     if (!month) return undefined;
     const day = Number(enDayMonthMatch[1]);
     const explicitYear = enDayMonthMatch[3] ? Number(enDayMonthMatch[3]) : undefined;
-    return resolveHistoricalDate(month, day, refDate, explicitYear);
+    return resolveHistoricalDate(month, day, refDate, collectorNowDateKey, explicitYear);
   }
 
   // M/D format
@@ -139,7 +144,7 @@ function parsePointDate(point: Record<string, unknown>, refDate: Date): string |
   if (slashMatch) {
     const month = Number(slashMatch[1]);
     const day = Number(slashMatch[2]);
-    return resolveHistoricalDate(month, day, refDate);
+    return resolveHistoricalDate(month, day, refDate, collectorNowDateKey);
   }
 
   return undefined;
@@ -161,18 +166,18 @@ function findLine(lines: unknown[], type: string, label: string): Record<string,
 function tokenTrend(lines: unknown[], refDate: Date, now: Date): DailyUsageAggregate[] {
   const trend = findLine(lines, 'barChart', 'Usage Trend');
   if (!trend || !Array.isArray(trend.points)) return [];
-  const nowDateKey = localDateKey(now);
+  const nowDateKey = toLocalDateKey(now);
   const byDate = new Map<string, number>();
 
   for (const point of trend.points) {
     if (!isRecord(point) || typeof point.value !== 'number' || !Number.isFinite(point.value) || point.value < 0) continue;
-    const dateKey = parsePointDate(point, refDate);
+    const dateKey = parsePointDate(point, refDate, nowDateKey);
     if (!dateKey) continue;
     byDate.set(dateKey, point.value);
   }
 
   if (byDate.size === 0) return [];
-  const sortedDates = [...byDate.keys()].sort().slice(-35);
+  const sortedDates = [...byDate.keys()].sort().slice(-HISTORY_HORIZON_DAYS);
   return sortedDates.map((date) => {
     const tokens = byDate.get(date)!;
     return {
@@ -193,20 +198,28 @@ function withPeriodCost(period: UsagePeriodAggregate | undefined, value: unknown
 export function normalizeLegacyUsageHistory(input: unknown, now: Date): ProviderHistoryInput[] {
   if (!Array.isArray(input)) throw new Error('invalid OpenUsage legacy usage payload');
   const result: ProviderHistoryInput[] = [];
-  const nowDateKey = localDateKey(now);
-  const yesterdayDateKey = dateKeyBefore(now, 1);
+  const nowDateKey = toLocalDateKey(now);
+  const yesterdayDateKey = shiftDateKey(nowDateKey, -1);
 
   for (const provider of input) {
     if (!isRecord(provider) || typeof provider.providerId !== 'string' || !Array.isArray(provider.lines)) continue;
 
+    if (typeof provider.fetchedAt === 'string') {
+      const parsedTime = Date.parse(provider.fetchedAt);
+      if (!Number.isFinite(parsedTime) || parsedTime > now.getTime() || toLocalDateKey(new Date(parsedTime)) > nowDateKey) {
+        continue;
+      }
+    }
+
     const sourceFetchedDate = typeof provider.fetchedAt === 'string' && Number.isFinite(Date.parse(provider.fetchedAt))
       ? new Date(provider.fetchedAt)
       : now;
-    const sourceDateKey = localDateKey(sourceFetchedDate);
-    const sourceYesterdayKey = dateKeyBefore(sourceFetchedDate, 1);
+    const sourceDateKey = toLocalDateKey(sourceFetchedDate);
+    const sourceYesterdayKey = shiftDateKey(sourceDateKey, -1);
 
     const daily = tokenTrend(provider.lines, sourceFetchedDate, now);
-    if (!daily.length) continue;
+    const inWindowDaily = daily.filter((item) => isWithinCalendarWindow(item.date, nowDateKey, HISTORY_HORIZON_DAYS));
+    if (!inWindowDaily.length) continue;
 
     const todayLine = findLine(provider.lines, 'text', 'Today');
     const yesterdayLine = findLine(provider.lines, 'text', 'Yesterday');
@@ -216,7 +229,7 @@ export function normalizeLegacyUsageHistory(input: unknown, now: Date): Provider
     const costFromYesterdayLine = parseUsd(yesterdayLine?.value);
 
     // Enriched daily attaches costs to the source's actual dates, not shifting to collector-now
-    const enriched = daily.map((item) => {
+    const enriched = inWindowDaily.map((item) => {
       if (item.date === sourceDateKey && costFromTodayLine !== undefined) {
         return { ...item, estimatedCostUsd: costFromTodayLine };
       }
@@ -226,16 +239,16 @@ export function normalizeLegacyUsageHistory(input: unknown, now: Date): Provider
       return item;
     });
 
+    const isSourceCurrent = sourceDateKey === nowDateKey;
     const todayItem = enriched.find((item) => item.date === nowDateKey);
     const yesterdayItem = enriched.find((item) => item.date === yesterdayDateKey);
-    const last30 = enriched.slice(-30);
+    const last30 = enriched.filter((item) => isWithinCalendarWindow(item.date, nowDateKey, 30));
+    const last30Cost = isSourceCurrent ? last30Line?.value : undefined;
 
-    // Prevent stale source periods.today from being relabeled as collector-now
-    const isSourceCurrent = sourceDateKey === nowDateKey;
     const periods = {
       ...(isSourceCurrent && todayItem ? { today: withPeriodCost({ tokens: todayItem.tokens }, todayLine?.value)! } : {}),
       ...(isSourceCurrent && yesterdayItem ? { yesterday: withPeriodCost({ tokens: yesterdayItem.tokens }, yesterdayLine?.value)! } : {}),
-      ...(last30.length ? { last30Days: withPeriodCost({ tokens: last30.reduce((sum, item) => sum + item.tokens, 0) }, last30Line?.value)! } : {}),
+      ...(last30.length ? { last30Days: withPeriodCost({ tokens: last30.reduce((sum, item) => sum + item.tokens, 0) }, last30Cost)! } : {}),
     };
 
     result.push({

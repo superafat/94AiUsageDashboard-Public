@@ -14,3 +14,10 @@ test('CI uses current Node 24 based official action majors', () => {
 test('CI workflow configures actions/checkout with fetch-depth: 0 for complete history audit', () => {
   assert.match(workflow, /actions\/checkout@v5[\s\S]*?with:\s*[\s\S]*?fetch-depth:\s*0/);
 });
+
+
+test('GitHub Actions workflow is manual-only and never auto-runs on push or pull request', () => {
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /(^|\n)\s*push:/m);
+  assert.doesNotMatch(workflow, /(^|\n)\s*pull_request:/m);
+});

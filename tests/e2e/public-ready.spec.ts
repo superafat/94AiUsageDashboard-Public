@@ -30,3 +30,15 @@ test('main mobile navigation meets 44px touch targets and keyboard focus works',
   await page.keyboard.press('Tab');
   await expect(page.locator(':focus')).toBeVisible();
 });
+
+test('settings opens version updates and the mobile update view does not overflow', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '設定', exact: true }).last().click();
+  await page.getByRole('button', { name: /更新與公告/ }).click();
+  await expect(page.getByRole('heading', { name: '更新與公告' })).toBeVisible();
+  await expect(page.getByText('v0.1.4')).toBeVisible();
+  await expect(page.getByText('目前開發版本', { exact: true })).toBeVisible();
+  await expect(page.getByText(/推播通知現在會標示可確認的 AI 來源與額度種類/)).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});

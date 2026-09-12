@@ -19,6 +19,7 @@ import { ProviderDetailScreen } from './screens/ProviderDetailScreen';
 import { ResetCreditsScreen } from './screens/ResetCreditsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { UsageStatsScreen } from './screens/UsageStatsScreen';
+import { UpdatesScreen } from './screens/UpdatesScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 
 export { REMOTE_SYNC_STALE_AFTER_MS, SOURCE_STALE_AFTER_MS, isSnapshotStale };
@@ -119,7 +120,14 @@ function AuthenticatedRoutes({ user, usage, history, preferences, location, serv
     isFamilySaving={preferences.isFamilySaving}
     familyError={preferences.familyError}
     onToggleFamily={preferences.setFamilyEnabled}
+    isNotificationEnabled={preferences.isNotificationEnabled}
+    isNotificationSaving={preferences.isNotificationSaving}
+    notificationError={preferences.notificationError}
+    onToggleNotification={preferences.setNotificationPreference}
+    services={services}
+    userId={user.uid}
   />);
+  if (location.route === 'updates') return shell(<UpdatesScreen onNavigate={navigate} />);
   return shell(<GettingStartedScreen signedIn onSignIn={() => services.auth.signIn()} onNavigate={navigate} />);
 }
 
@@ -137,6 +145,7 @@ export function AppRoot({ services }: { services: AppClientServices }) {
   if (user === null) {
     if (location.route === 'getting-started') return <main className="public-screen"><GettingStartedScreen signedIn={false} onSignIn={() => services.auth.signIn()} onNavigate={navigate} /></main>;
     if (location.route === 'help') return <main className="public-screen"><HelpScreen onNavigate={navigate} /></main>;
+    if (location.route === 'updates') return <main className="public-screen"><UpdatesScreen onNavigate={navigate} /></main>;
     return <WelcomeScreen onNavigate={navigate} />;
   }
   return <AuthenticatedRoutes user={user} usage={usage} history={history} preferences={preferences} location={location} services={services} />;

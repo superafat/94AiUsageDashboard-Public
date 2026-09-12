@@ -1,5 +1,5 @@
-import { collection, collectionGroup, doc, onSnapshot, query, setDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
-import { KNOWN_PROVIDER_FAMILIES, parseProviderPreference, parseUsageHistorySnapshot, parseUsageSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import { collection, collectionGroup, doc, onSnapshot, query, runTransaction, setDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
+import { KNOWN_PROVIDER_FAMILIES, parseProviderPreference, parseUsageHistorySnapshot, parseUsageSnapshot, resolveFamilyEnabled, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
 import { historyDocPath, historyChunkPath, preferenceDocPath, usageDocPath } from './paths';
 import { assembleUsageHistory, parseHistoryChunk, parseHistorySummary, splitHistoryForStorage, HISTORY_MAX_CHUNKS, type UsageHistoryChunk } from './history-storage';
 
@@ -91,6 +91,38 @@ export async function writeProviderPreference(
   const parsed = parseProviderPreference(preference);
   if (parsed.userId !== uid) throw new Error('auth UID does not match preference UID');
   await setDoc(doc(db, preferenceDocPath(uid, parsed.family)), parsed, { merge: true });
+}
+
+export async function updateNotificationPreferenceTransaction(
+  db: Firestore,
+  uid: string,
+  family: string,
+  patch: { lowQuota?: boolean; reset?: boolean },
+): Promise<void> {
+  const ref = doc(db, preferenceDocPath(uid, family));
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const existing = snap.exists() ? parseProviderPreference(snap.data()) : undefined;
+    if (existing && existing.userId !== uid) {
+      throw new Error('auth UID does not match preference UID');
+    }
+    const currentEnabled = existing?.enabled ?? resolveFamilyEnabled(family, {});
+    const currentNotifications = existing?.notifications ?? {};
+    const updated: ProviderPreference = {
+      schemaVersion: 1,
+      userId: uid,
+      family,
+      enabled: currentEnabled,
+      updatedAt: new Date().toISOString(),
+      notifications: {
+        ...currentNotifications,
+        ...patch,
+      },
+    };
+    const parsed = parseProviderPreference(updated);
+    if (parsed.userId !== uid) throw new Error('auth UID does not match preference UID');
+    tx.set(ref, parsed, { merge: true });
+  });
 }
 
 export function subscribeProviderPreferences(
