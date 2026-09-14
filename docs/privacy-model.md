@@ -52,8 +52,12 @@ OpenUsage 是獨立第三方軟體，不等於我們的 Firebase 同步。依上
    - **集合路徑**：`/users/{uid}/devices/{deviceId}/health/{healthId}` (`healthId == 'current'`)
    - **儲存內容**：裝置與常駐程式健康度（包含 `engine`、`background`、`sync` 狀態及可用 Provider 數量）。
    - **保留語意 (Retention)**：每次健康檢查或同步時覆寫更新為最新快照；Rules 設為 `delete: if false`。
-5. **Reset Credit 與指令 Metadata (Reset-command Metadata)**
-   - **現況與保留語意**：目前開發版本 v0.1.4 已具備 Mac 本機的 Reset Credit R1 安全執行核心，但**尚未啟用 Web／Firestore 遠端消耗指令通道，也不會自動或直接消耗真實 Reset Credit**。R2 遠端配對流程與真人消耗驗收仍未完成；未取得使用者針對單筆真實券的明確確認前，不得執行真實消耗。若後續啟用指令 metadata，將限定於擁有者自身裝置路徑（如 `/users/{uid}/devices/{deviceId}/commands/{commandId}`），僅存放短暫 TTL 的隨機指令識別碼、過期時間與冪等狀態，絕不存放 Provider 憑證。
+5. **Reset Credit 與指令傳輸通道 (Reset-command Transport & Receipts)**
+   - **集合路徑**：
+     - 短期簽署庫存：`/users/{uid}/devices/{deviceId}/resetControl/inventory`（保留至下次同步或覆寫，TTL $\le$ 5 分鐘，Mac 本機 P-256 簽名驗證）
+     - 單一請求槽位：`/users/{uid}/devices/{deviceId}/resetControl/request`（單一固定文件，租約上限 10 分鐘，原生 Timestamp 影子比對）
+     - 執行與終態收據：`/users/{uid}/devices/{deviceId}/resetResults/{commandId}`（狀態由 `executing` 原子化轉為 `terminal`，終態文件 `delete: if false` 且不可修改）
+   - **現況與保留語意**：v0.1.4 開發版（最新正式公開 Release 維持為 v0.1.3）於 R2 階段建立了受控配對傳輸架構，Web UI 具備獨立本機配對金鑰 (TOFU) 與不可逆操作之二次確認對話框。Mac 端預設停用，R2 傳輸通道需由使用者顯式設定 `AI_USAGE_RESET_COMMANDS_ENABLED=1`。**真實 Reset 券消耗 (R3) 需額外之獨立閘門 `AI_USAGE_RESET_REAL_CONSUME_ENABLED=1`，目前處於未授權 (NOT authorized) 狀態**；真實 Reset Credit 消耗數維持為 0，未經 Owner 正式驗收前，絕不自動或直接消耗真實 Reset Credit。系統具備裝置級跨帳號未決互鎖（`hasUnresolvedResetJournalsForDevice`），若裝置上有任何帳號未收斂即全面阻擋變更並清空可操作庫存。傳輸通道可先行部署，前端操作介面需在完成正式託管與規則部署後方生效。絕不存放任何 Provider 憑證。
 6. **Provider 顯示與同步偏好設定 (Provider Preferences)**
    - **集合路徑**：`/users/{uid}/preferences/{family}`（`family` 為 11 種支援的 Provider 家族識別碼，如 `codex`、`antigravity`、`claude`、`copilot`、`cursor`、`devin`、`grok`、`ollama`、`opencode`、`openrouter`、`zai`）。
    - **儲存內容**：各 Provider 家族之啟用/停用狀態（`family`、`enabled: boolean`、`updatedAt`、`version: 1`）。

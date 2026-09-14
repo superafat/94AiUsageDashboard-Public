@@ -9,3 +9,5 @@ export * from './quota-notifications';
 export * from './push-notifications';
 export * from './reset-credit-command';
 export * from './brand';
+
+export * from './reset-command-transport';

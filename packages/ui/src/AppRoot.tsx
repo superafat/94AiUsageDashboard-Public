@@ -79,7 +79,7 @@ function AuthenticatedRoutes({ user, usage, history, preferences, location, serv
     isFamilyEnabled={preferences.isFamilyEnabled}
   />, true);
   if (location.route === 'usage') return shell(<UsageStatsScreen items={historyItems} now={new Date(now)} />);
-  if (location.route === 'resets') return shell(<ResetCreditsScreen items={items} now={new Date(now)} />);
+  if (location.route === 'resets') return shell(<ResetCreditsScreen items={items} now={new Date(now)} userId={user.uid} resetCommands={services.resetCommands} />);
   if (location.route === 'provider') {
     const snapshot = items.find((item) =>
       item.providerId === location.providerId && (!location.deviceId || item.deviceId === location.deviceId)

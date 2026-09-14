@@ -1,6 +1,10 @@
 import type {
   ProviderPreference,
   PushProducerRecord,
+  ResetCommandReceipt,
+  ResetCommandRequestRecord,
+  ResetCreditItem,
+  ResetInventoryEnvelope,
   PushSubscriptionRecord,
   UsageHistorySnapshot,
   UsageSnapshot,
@@ -72,6 +76,37 @@ export interface PushNotificationService {
   ): () => void;
 }
 
+
+export interface ResetPairingPin {
+  backendId: string;
+  userId: string;
+  deviceId: string;
+  publicKey: string;
+  browserId: string;
+}
+
+export type ResetVerifiedInventory =
+  | { status: 'ready'; pin: ResetPairingPin; producer: PushProducerRecord; envelope: ResetInventoryEnvelope; credit: ResetCreditItem }
+  | { status: 'unpaired' | 'key_mismatch' | 'unavailable' | 'unverified'; credit?: undefined };
+
+export type ResetCommandProgress =
+  | { status: 'waiting'; request: ResetCommandRequestRecord }
+  | { status: 'executing'; request: ResetCommandRequestRecord; receipt: ResetCommandReceipt }
+  | { status: 'terminal'; request: ResetCommandRequestRecord; receipt: ResetCommandReceipt }
+  | { status: 'unverified'; request: ResetCommandRequestRecord }
+  | { status: 'uncertain'; request: ResetCommandRequestRecord };
+
+export interface ResetCommandService {
+  subscribeProducers(uid: string, onValue: (items: PushProducerRecord[]) => void, onError?: (error: Error) => void): () => void;
+  getPairing(uid: string, deviceId: string): ResetPairingPin | null;
+  pair(uid: string, producer: PushProducerRecord): ResetPairingPin;
+  verifyInventory(uid: string, producer: PushProducerRecord, envelope: ResetInventoryEnvelope): Promise<ResetVerifiedInventory>;
+  subscribeInventory(uid: string, producer: PushProducerRecord, onValue: (value: ResetVerifiedInventory) => void, onError?: (error: Error) => void): () => void;
+  dispatch(value: ResetVerifiedInventory): Promise<ResetCommandRequestRecord>;
+  verifyReceipt(uid: string, producer: PushProducerRecord, request: ResetCommandRequestRecord, receipt: ResetCommandReceipt): Promise<ResetCommandProgress>;
+  watchResult(uid: string, producer: PushProducerRecord, request: ResetCommandRequestRecord, onValue: (state: ResetCommandProgress) => void, onError?: (error: Error) => void): () => void;
+}
+
 export interface ConnectivityClient {
   current(): 'online' | 'offline';
   subscribe(callback: (state: 'online' | 'offline') => void): () => void;
@@ -107,6 +142,7 @@ export interface AppClientServices {
   history: UsageHistoryRepository;
   preferences?: ProviderPreferencesRepository;
   notifications?: PushNotificationService;
+  resetCommands?: ResetCommandService;
   connectivity: ConnectivityClient;
   clock: ClockClient;
   navigation: NavigationClient;

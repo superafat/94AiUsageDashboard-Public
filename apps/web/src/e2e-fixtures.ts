@@ -1,5 +1,16 @@
-import type { AppClientServices } from '@94ai/client';
-import { parseProviderPreference, parsePushSubscriptionRecord, resolveFamilyEnabled, type PushSubscriptionRecord, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import type { AppClientServices, ResetCommandService, ResetPairingPin } from '@94ai/client';
+import {
+  parseProviderPreference,
+  parsePushSubscriptionRecord,
+  resolveFamilyEnabled,
+  type PushSubscriptionRecord,
+  type ProviderPreference,
+  type PushProducerRecord,
+  type ResetInventoryEnvelope,
+  type ResetCreditItem,
+  type UsageHistorySnapshot,
+  type UsageSnapshot,
+} from '@94ai/core';
 import { createBrowserConnectivity, createBrowserNavigation } from './platform';
 
 const baseTime = '2026-09-05T10:00:05.000Z';
@@ -172,8 +183,256 @@ export function createE2EServices(fixture: string | null): AppClientServices {
         return () => {pushListeners.delete(onValue);};
       },
     },
+    ...(fixture?.startsWith('reset-') ? { resetCommands: createE2EResetCommands(fixture, pushPublicKey) } : {}),
     connectivity: createBrowserConnectivity(),
     clock: { now: () => Date.parse('2026-09-05T10:00:10.000Z'), every: () => () => undefined },
     navigation: createBrowserNavigation(),
+  };
+}
+
+function createE2EResetCommands(fixture: string, defaultPublicKey: string): ResetCommandService {
+  const isMulti = fixture === 'reset-multi-device';
+  const isUnverified = fixture === 'reset-unverified';
+  const isUncertain = fixture === 'reset-uncertain';
+  const isNoEffect = fixture === 'reset-no-effect';
+
+  const producers: PushProducerRecord[] = isMulti
+    ? [
+        { schemaVersion: 1, userId: 'e2e-user', deviceId: 'mac-primary', publicKey: defaultPublicKey, updatedAt: baseTime },
+        { schemaVersion: 1, userId: 'e2e-user', deviceId: 'mac-secondary', publicKey: defaultPublicKey, updatedAt: baseTime },
+      ]
+    : [
+        { schemaVersion: 1, userId: 'e2e-user', deviceId: 'mac-test', publicKey: defaultPublicKey, updatedAt: baseTime },
+      ];
+
+  const pairingKey = (deviceId: string) => `e2e-reset-paired-${deviceId}`;
+
+  const getPin = (uid: string, deviceId: string): ResetPairingPin | null => {
+    if (isUnverified) {
+      return { backendId: 'e2e-backend', userId: uid, deviceId, publicKey: defaultPublicKey, browserId: 'e2e-browser' };
+    }
+    const paired = sessionStorage.getItem(pairingKey(deviceId));
+    if (!paired) return null;
+    return { backendId: 'e2e-backend', userId: uid, deviceId, publicKey: defaultPublicKey, browserId: 'e2e-browser' };
+  };
+
+  return {
+    subscribeProducers: (_uid, onValue) => {
+      queueMicrotask(() => onValue(producers));
+      return () => undefined;
+    },
+    getPairing: (uid, deviceId) => getPin(uid, deviceId),
+    pair: (uid, producer) => {
+      sessionStorage.setItem(pairingKey(producer.deviceId), '1');
+      return { backendId: 'e2e-backend', userId: uid, deviceId: producer.deviceId, publicKey: producer.publicKey, browserId: 'e2e-browser' };
+    },
+    verifyInventory: async (uid, producer, envelope) => {
+      const credit = envelope.inventory.credits?.[0];
+      if (!credit) return { status: 'unavailable' };
+      return {
+        status: 'ready',
+        pin: getPin(uid, producer.deviceId)!,
+        producer,
+        envelope,
+        credit,
+      };
+    },
+    subscribeInventory: (uid, producer, onValue) => {
+      if (isUnverified) {
+        queueMicrotask(() => onValue({ status: 'unverified' }));
+        return () => undefined;
+      }
+      const pin = getPin(uid, producer.deviceId);
+      if (!pin) {
+        queueMicrotask(() => onValue({ status: 'unpaired' }));
+        return () => undefined;
+      }
+      const credit: ResetCreditItem = {
+        creditId: 'c1',
+        expiresAt: '2026-10-05T10:00:00.000Z',
+        status: 'available',
+        resetType: 'codexRateLimits',
+      };
+      const envelope: ResetInventoryEnvelope = {
+        version: 1,
+        type: 'inventory',
+        publicKey: producer.publicKey,
+        signature: 'e2e-synthetic-signature-64bytes-base64url-filler-filler-filler-filler',
+        inventory: {
+          version: 1,
+          backendId: 'e2e-backend',
+          userId: uid,
+          targetDeviceId: producer.deviceId,
+          accountId: 'acc-e2e',
+          observedAt: baseTime,
+          expiresAt: '2026-10-05T10:00:00.000Z',
+          availableCount: 1,
+          credits: [credit],
+        },
+      };
+      queueMicrotask(() => onValue({
+        status: 'ready',
+        pin,
+        producer,
+        envelope,
+        credit,
+      }));
+      return () => undefined;
+    },
+    dispatch: async (value) => {
+      if (value.status !== 'ready') throw new Error('inventory_not_ready');
+      return {
+        version: 1,
+        browserId: 'e2e-browser',
+        producerPublicKey: value.pin.publicKey,
+        leaseExpiresAt: '2026-10-05T10:05:00.000Z',
+        command: {
+          version: 1,
+          commandId: 'cmd-e2e',
+          idempotencyKey: 'idem-e2e',
+          creditId: value.credit.creditId,
+          accountId: value.envelope.inventory.accountId,
+          targetDeviceId: value.pin.deviceId,
+          userId: value.pin.userId,
+          backendId: value.pin.backendId,
+          requestedAt: baseTime,
+          expiresAt: '2026-10-05T10:05:00.000Z',
+        },
+      };
+    },
+    verifyReceipt: async (_uid, _producer, request, receipt) => ({
+      status: receipt.type,
+      request,
+      receipt,
+    }),
+    watchResult: (uid, producer, request, onValue) => {
+      let t1: ReturnType<typeof setTimeout> | undefined;
+      let t2: ReturnType<typeof setTimeout> | undefined;
+
+      if (isUncertain) {
+        onValue({ status: 'waiting', request });
+        t1 = setTimeout(() => {
+          onValue({ status: 'uncertain', request });
+        }, 150);
+      } else if (isNoEffect) {
+        onValue({ status: 'waiting', request });
+        t1 = setTimeout(() => {
+          onValue({
+            status: 'executing',
+            request,
+            receipt: {
+              version: 1,
+              type: 'executing',
+              publicKey: producer.publicKey,
+              signature: 'e2e-synthetic-signature-64bytes-base64url-filler-filler-filler-filler',
+              backendId: request.command.backendId,
+              userId: uid,
+              targetDeviceId: producer.deviceId,
+              accountId: request.command.accountId,
+              commandId: request.command.commandId,
+              idempotencyKey: request.command.idempotencyKey,
+              creditId: request.command.creditId,
+              executedAt: baseTime,
+            },
+          });
+        }, 200);
+        t2 = setTimeout(() => {
+          onValue({
+            status: 'terminal',
+            request,
+            receipt: {
+              version: 1,
+              type: 'terminal',
+              publicKey: producer.publicKey,
+              signature: 'e2e-synthetic-signature-64bytes-base64url-filler-filler-filler-filler',
+              backendId: request.command.backendId,
+              userId: uid,
+              targetDeviceId: producer.deviceId,
+              accountId: request.command.accountId,
+              commandId: request.command.commandId,
+              idempotencyKey: request.command.idempotencyKey,
+              creditId: request.command.creditId,
+              executedAt: baseTime,
+              result: {
+                version: 1,
+                commandId: request.command.commandId,
+                idempotencyKey: request.command.idempotencyKey,
+                creditId: request.command.creditId,
+                accountId: request.command.accountId,
+                targetDeviceId: producer.deviceId,
+                userId: uid,
+                backendId: request.command.backendId,
+                state: 'success',
+                code: 'nothingToReset',
+                executedAt: baseTime,
+                completedAt: baseTime,
+              },
+            },
+          });
+        }, 400);
+      } else {
+        // default / reset-ready
+        onValue({ status: 'waiting', request });
+        t1 = setTimeout(() => {
+          onValue({
+            status: 'executing',
+            request,
+            receipt: {
+              version: 1,
+              type: 'executing',
+              publicKey: producer.publicKey,
+              signature: 'e2e-synthetic-signature-64bytes-base64url-filler-filler-filler-filler',
+              backendId: request.command.backendId,
+              userId: uid,
+              targetDeviceId: producer.deviceId,
+              accountId: request.command.accountId,
+              commandId: request.command.commandId,
+              idempotencyKey: request.command.idempotencyKey,
+              creditId: request.command.creditId,
+              executedAt: baseTime,
+            },
+          });
+        }, 200);
+        t2 = setTimeout(() => {
+          onValue({
+            status: 'terminal',
+            request,
+            receipt: {
+              version: 1,
+              type: 'terminal',
+              publicKey: producer.publicKey,
+              signature: 'e2e-synthetic-signature-64bytes-base64url-filler-filler-filler-filler',
+              backendId: request.command.backendId,
+              userId: uid,
+              targetDeviceId: producer.deviceId,
+              accountId: request.command.accountId,
+              commandId: request.command.commandId,
+              idempotencyKey: request.command.idempotencyKey,
+              creditId: request.command.creditId,
+              executedAt: baseTime,
+              result: {
+                version: 1,
+                commandId: request.command.commandId,
+                idempotencyKey: request.command.idempotencyKey,
+                creditId: request.command.creditId,
+                accountId: request.command.accountId,
+                targetDeviceId: producer.deviceId,
+                userId: uid,
+                backendId: request.command.backendId,
+                state: 'success',
+                code: 'reset',
+                executedAt: baseTime,
+                completedAt: baseTime,
+              },
+            },
+          });
+        }, 400);
+      }
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    },
   };
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { formatSafeError, formatSyncStatus, runSyncWithDependencies, serializeSafeSnapshot } from './sync';
+import { formatSafeError, formatSyncStatus, hasUnresolvedResetJournalsForDevice, runSyncWithDependencies, serializeSafeSnapshot } from './sync';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { ResetCommandJournal } from './reset-command-journal';
 
 const snapshot = {
   schemaVersion: 1,
@@ -12,6 +16,139 @@ const snapshot = {
   stale: false,
   resources: { session: { kind: 'consumption', unit: 'percent', remaining: 51 } },
 };
+
+describe('reset journal path boundary', () => {
+  it('keeps account journal directories strictly below the journals root', async () => {
+    const syncModule = await import('./sync') as Record<string, unknown>;
+    expect(typeof syncModule.resolveResetJournalAccountDir).toBe('function');
+    const resolveDir = syncModule.resolveResetJournalAccountDir as (root: string, accountId: string) => string;
+    expect(resolveDir('/safe/journals', 'acct_123')).toBe('/safe/journals/acct_123');
+    expect(() => resolveDir('/safe/journals', '..')).toThrow(/journal.*path|account/i);
+    expect(() => resolveDir('/safe/journals', '.')).toThrow(/journal.*path|account/i);
+  });
+
+  it('reports unresolved work across account journals for the same device', async () => {
+    const syncModule = await import('./sync') as Record<string, unknown>;
+    expect(typeof syncModule.hasUnresolvedResetJournalsForDevice).toBe('function');
+    const scan = syncModule.hasUnresolvedResetJournalsForDevice as (input: { journalDir: string; backendId: string; userId: string; deviceId: string }) => Promise<boolean>;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-global-reset-'));
+    const accountA = path.join(root, 'account_a');
+    const accountB = path.join(root, 'account_b');
+    fs.mkdirSync(accountA);
+    fs.mkdirSync(accountB);
+    const journalB = new ResetCommandJournal({ rootDir: accountB, backendId: 'backend', userId: 'user', deviceId: 'device', accountId: 'account_b' });
+    const command = {
+      version: 1 as const, commandId: 'cmd_b', idempotencyKey: 'idem_b', creditId: 'credit_b', accountId: 'account_b',
+      targetDeviceId: 'device', userId: 'user', backendId: 'backend', requestedAt: '2026-09-14T10:00:00.000Z', expiresAt: '2026-09-14T10:10:00.000Z',
+    };
+    await journalB.prepareCommand(command);
+    await journalB.transitionToExecuting(command.commandId);
+    expect(await scan({ journalDir: root, backendId: 'backend', userId: 'user', deviceId: 'device' })).toBe(true);
+  });
+
+  it('returns false when all account journals on the device are clean and terminal', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-clean-reset-'));
+    const accountA = path.join(root, 'account_a');
+    const accountB = path.join(root, 'account_b');
+    fs.mkdirSync(accountA);
+    fs.mkdirSync(accountB);
+    const journalA = new ResetCommandJournal({ rootDir: accountA, backendId: 'backend', userId: 'user', deviceId: 'device', accountId: 'account_a' });
+    const journalB = new ResetCommandJournal({ rootDir: accountB, backendId: 'backend', userId: 'user', deviceId: 'device', accountId: 'account_b' });
+    const cmdA = {
+      version: 1 as const, commandId: 'cmd_a', idempotencyKey: 'idem_a', creditId: 'credit_a', accountId: 'account_a',
+      targetDeviceId: 'device', userId: 'user', backendId: 'backend', requestedAt: '2026-09-14T10:00:00.000Z', expiresAt: '2026-09-14T10:10:00.000Z',
+    };
+    const cmdB = {
+      version: 1 as const, commandId: 'cmd_b', idempotencyKey: 'idem_b', creditId: 'credit_b', accountId: 'account_b',
+      targetDeviceId: 'device', userId: 'user', backendId: 'backend', requestedAt: '2026-09-14T10:00:00.000Z', expiresAt: '2026-09-14T10:10:00.000Z',
+    };
+    await journalA.prepareCommand(cmdA);
+    await journalA.transitionToExecuting(cmdA.commandId);
+    await journalA.transitionToTerminal(cmdA.commandId, {
+      version: 1, commandId: cmdA.commandId, idempotencyKey: cmdA.idempotencyKey, creditId: cmdA.creditId,
+      accountId: cmdA.accountId, targetDeviceId: cmdA.targetDeviceId, userId: cmdA.userId, backendId: cmdA.backendId,
+      state: 'success', code: 'reset', executedAt: '2026-09-14T10:01:00.000Z', completedAt: '2026-09-14T10:01:02.000Z',
+    });
+    await journalB.prepareCommand(cmdB);
+    await journalB.transitionToExecuting(cmdB.commandId);
+    await journalB.transitionToTerminal(cmdB.commandId, {
+      version: 1, commandId: cmdB.commandId, idempotencyKey: cmdB.idempotencyKey, creditId: cmdB.creditId,
+      accountId: cmdB.accountId, targetDeviceId: cmdB.targetDeviceId, userId: cmdB.userId, backendId: cmdB.backendId,
+      state: 'success', code: 'reset', executedAt: '2026-09-14T10:01:00.000Z', completedAt: '2026-09-14T10:01:02.000Z',
+    });
+    expect(await hasUnresolvedResetJournalsForDevice({ journalDir: root, backendId: 'backend', userId: 'user', deviceId: 'device' })).toBe(false);
+  });
+
+  it('reports true when account A has unresolved reconciliation and account B is clean', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-mixed-reset-'));
+    const accountA = path.join(root, 'account_a');
+    const accountB = path.join(root, 'account_b');
+    fs.mkdirSync(accountA);
+    fs.mkdirSync(accountB);
+    const journalA = new ResetCommandJournal({ rootDir: accountA, backendId: 'backend', userId: 'user', deviceId: 'device', accountId: 'account_a' });
+    const journalB = new ResetCommandJournal({ rootDir: accountB, backendId: 'backend', userId: 'user', deviceId: 'device', accountId: 'account_b' });
+    const cmdA = {
+      version: 1 as const, commandId: 'cmd_a', idempotencyKey: 'idem_a', creditId: 'credit_a', accountId: 'account_a',
+      targetDeviceId: 'device', userId: 'user', backendId: 'backend', requestedAt: '2026-09-14T10:00:00.000Z', expiresAt: '2026-09-14T10:10:00.000Z',
+    };
+    const cmdB = {
+      version: 1 as const, commandId: 'cmd_b', idempotencyKey: 'idem_b', creditId: 'credit_b', accountId: 'account_b',
+      targetDeviceId: 'device', userId: 'user', backendId: 'backend', requestedAt: '2026-09-14T10:00:00.000Z', expiresAt: '2026-09-14T10:10:00.000Z',
+    };
+    await journalA.prepareCommand(cmdA);
+    await journalA.transitionToExecuting(cmdA.commandId);
+    // journal A remains in executing state (unresolved)
+    await journalB.prepareCommand(cmdB);
+    await journalB.transitionToExecuting(cmdB.commandId);
+    await journalB.transitionToTerminal(cmdB.commandId, {
+      version: 1, commandId: cmdB.commandId, idempotencyKey: cmdB.idempotencyKey, creditId: cmdB.creditId,
+      accountId: cmdB.accountId, targetDeviceId: cmdB.targetDeviceId, userId: cmdB.userId, backendId: cmdB.backendId,
+      state: 'success', code: 'reset', executedAt: '2026-09-14T10:01:00.000Z', completedAt: '2026-09-14T10:01:02.000Z',
+    });
+    expect(await hasUnresolvedResetJournalsForDevice({ journalDir: root, backendId: 'backend', userId: 'user', deviceId: 'device' })).toBe(true);
+  });
+
+  it('fails closed when an account journal is malformed or corrupt', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-corrupt-reset-'));
+    const accountDir = path.join(root, 'account_corrupt');
+    fs.mkdirSync(accountDir);
+    fs.writeFileSync(path.join(accountDir, 'reset-journal.json'), '{ bad json content !!!', 'utf8');
+    await expect(
+      hasUnresolvedResetJournalsForDevice({ journalDir: root, backendId: 'backend', userId: 'user', deviceId: 'device' })
+    ).rejects.toThrow(/invalid.*journal|journal/i);
+  });
+
+  it('fails closed and prevents bypass when account directory is a symlink or attempts path traversal', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-symlink-reset-'));
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), '94ai-target-'));
+    const symlinkPath = path.join(root, 'account_symlink');
+    fs.symlinkSync(targetDir, symlinkPath);
+
+    await expect(
+      hasUnresolvedResetJournalsForDevice({ journalDir: root, backendId: 'backend', userId: 'user', deviceId: 'device' })
+    ).rejects.toThrow(/invalid_account_journal_path/i);
+
+    // Root is a symlink
+    const rootSymlink = path.join(os.tmpdir(), `symlink-root-${Date.now()}`);
+    fs.symlinkSync(root, rootSymlink);
+    try {
+      await expect(
+        hasUnresolvedResetJournalsForDevice({ journalDir: rootSymlink, backendId: 'backend', userId: 'user', deviceId: 'device' })
+      ).rejects.toThrow(/invalid_journal_root/i);
+    } finally {
+      fs.unlinkSync(rootSymlink);
+    }
+  });
+
+  it('requires an explicit R3 rollout flag before real Reset Credit consumption is authorized', async () => {
+    const syncModule = await import('./sync') as Record<string, unknown>;
+    expect(typeof syncModule.isR3ResetConsumeAuthorized).toBe('function');
+    const allowed = syncModule.isR3ResetConsumeAuthorized as (env: NodeJS.ProcessEnv) => boolean;
+    expect(allowed({})).toBe(false);
+    expect(allowed({ AI_USAGE_RESET_REAL_CONSUME_ENABLED: 'true' })).toBe(false);
+    expect(allowed({ AI_USAGE_RESET_REAL_CONSUME_ENABLED: '1' })).toBe(true);
+  });
+});
 
 describe('agent privacy boundary', () => {
   for (const key of ['access_token', 'refresh_token', 'apiKey', 'cookie', 'prompt', 'response', 'sessions']) {
@@ -526,4 +663,63 @@ it('triggers push notification sync and isolates push errors from quota sync', a
   expect(pushCalled).toBe(true);
   expect(result.providerCount).toBe(1);
   expect(result.pushErrorCode).toBe('push_keys_failed');
+});
+
+it('triggers syncResetCommands and isolates reset errors from quota sync', async () => {
+  let resetCalled = false;
+  const result = await runSyncWithDependencies({
+    now: () => new Date('2026-09-05T10:00:05.000Z'),
+    getDeviceId: async () => 'device-1',
+    getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+    fetchLimits: async () => ({
+      schema: 'openusage.limits.v1',
+      providers: {
+        codex: {
+          fetchedAt: '2026-09-05T10:00:00.000Z',
+          expiresAt: '2026-09-05T10:05:00.000Z',
+          stale: false,
+          resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
+        },
+      },
+      errors: [],
+    }),
+    writeSnapshot: async () => undefined,
+    syncResetCommands: async () => {
+      resetCalled = true;
+      throw new Error('reset_failed');
+    },
+  });
+
+  expect(resetCalled).toBe(true);
+  expect(result.providerCount).toBe(1);
+  expect(result.resetCommandErrorCode).toBe('reset_command_failed');
+});
+
+it('runs syncResetCommands successfully without error code', async () => {
+  let resetCalledWith: { uid: string; deviceId: string } | undefined;
+  const result = await runSyncWithDependencies({
+    now: () => new Date('2026-09-05T10:00:05.000Z'),
+    getDeviceId: async () => 'device-1',
+    getAuthContext: async () => ({ uid: 'alice', idToken: 'token', close: async () => undefined }),
+    fetchLimits: async () => ({
+      schema: 'openusage.limits.v1',
+      providers: {
+        codex: {
+          fetchedAt: '2026-09-05T10:00:00.000Z',
+          expiresAt: '2026-09-05T10:05:00.000Z',
+          stale: false,
+          resources: { session: { kind: 'consumption', unit: 'percent', remaining: 50 } },
+        },
+      },
+      errors: [],
+    }),
+    writeSnapshot: async () => undefined,
+    syncResetCommands: async (auth, deviceId) => {
+      resetCalledWith = { uid: auth.uid, deviceId };
+    },
+  });
+
+  expect(resetCalledWith).toEqual({ uid: 'alice', deviceId: 'device-1' });
+  expect(result.providerCount).toBe(1);
+  expect(result.resetCommandErrorCode).toBeUndefined();
 });

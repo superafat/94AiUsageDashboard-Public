@@ -821,6 +821,7 @@ export class ResetCommandJournal {
 
       entry.state = 'terminal';
       entry.result = parsedResult;
+      entry.reconcileRequired = parsedResult.state === 'unknown' || parsedResult.code === 'reconcile_required';
       entry.terminalAt = new Date().toISOString();
       this.write(storage);
       return entry;
@@ -876,6 +877,18 @@ export class ResetCommandJournal {
       entry.terminalAt = new Date().toISOString();
       this.write(storage);
       return entry;
+    });
+  }
+
+  public async hasUnresolvedReconciliation(): Promise<boolean> {
+    return this.locked(() => {
+      const storage = this.read();
+      return Object.values(storage.entries).some((entry) =>
+        entry.state === 'executing' ||
+        entry.reconcileRequired === true ||
+        (entry.state === 'terminal' &&
+          (entry.result?.state === 'unknown' || entry.result?.code === 'reconcile_required'))
+      );
     });
   }
 

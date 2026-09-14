@@ -491,4 +491,41 @@ describe('ResetCommandJournal', () => {
       fs.rmSync(otherDir, { recursive: true, force: true });
     }
   });
+
+  it('R2 global interlock reports executing and unresolved unknown entries, then clears after reconciliation', async () => {
+    const journal = new ResetCommandJournal(options);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(false);
+    await journal.prepareCommand(sampleCommand);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(false);
+    await journal.transitionToExecuting(sampleCommand.commandId);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(true);
+
+    const unknownResult: ResetCreditResult = {
+      ...sampleResult,
+      state: 'unknown',
+      code: 'unknown_outcome',
+    };
+    await journal.transitionToTerminal(sampleCommand.commandId, unknownResult);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(true);
+
+    await journal.markReconciled(sampleCommand.commandId, sampleResult);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(false);
+  });
+
+  it('R2 global interlock stays clear after a known terminal outcome', async () => {
+    const journal = new ResetCommandJournal(options);
+    await journal.prepareCommand(sampleCommand);
+    await journal.transitionToExecuting(sampleCommand.commandId);
+    await journal.transitionToTerminal(sampleCommand.commandId, sampleResult);
+    expect(await journal.hasUnresolvedReconciliation()).toBe(false);
+  });
+
+  it('R2 global interlock detects crash-recovered reconcile_required state on a fresh journal instance', async () => {
+    const journal1 = new ResetCommandJournal(options);
+    await journal1.prepareCommand(sampleCommand);
+    await journal1.transitionToExecuting(sampleCommand.commandId);
+    const journal2 = new ResetCommandJournal(options);
+    expect(await journal2.hasUnresolvedReconciliation()).toBe(true);
+  });
+
 });

@@ -51,6 +51,12 @@ test('AGENTS.md exists and defines lean-role boundaries and telemetry truth', ()
   ]) {
     assert.match(agents, new RegExp(phrase, 'i'), `AGENTS.md must contain ${phrase}`);
   }
+
+  assert.match(agents, /Reset Credit R2/i, 'AGENTS.md must define the bounded R2 reset exception');
+  assert.match(agents, /explicit user confirmation/i, 'R2 reset requires explicit user confirmation');
+  assert.match(agents, /paired Mac/i, 'R2 reset must execute only through a paired Mac');
+  assert.match(agents, /Journal/i, 'R2 reset must preserve the local Journal authority boundary');
+  assert.match(agents, /must not automatically reset|automatic reset.*forbidden/i, 'automatic reset must remain forbidden');
 });
 
 test('README documents read-only telemetry truth and non-centralization boundaries', () => {
@@ -90,4 +96,26 @@ test('README includes push onboarding subsection linking to docs/notifications.m
   assert.match(readme, /推播.*(?:通知|設定|教學)/);
   assert.match(readme, /docs\/notifications\.md/);
   assert.doesNotMatch(readme, /Google Play.*已發布|App Store.*已發布/);
+});
+
+test('docs enforce R2 transport vs R3 consume gate, device interlock, and development release state', () => {
+  const agentsPath = new URL('../AGENTS.md', import.meta.url);
+  const agents = fs.readFileSync(agentsPath, 'utf8');
+  assert.match(agents, /AI_USAGE_RESET_COMMANDS_ENABLED/);
+  assert.match(agents, /AI_USAGE_RESET_REAL_CONSUME_ENABLED/);
+  assert.match(agents, /r3_authorization_required/);
+  assert.match(agents, /device-wide|cross-account/i);
+
+  const resetDocPath = new URL('../docs/reset-credit-command.md', import.meta.url);
+  const resetDoc = fs.readFileSync(resetDocPath, 'utf8');
+  assert.match(resetDoc, /r3_authorization_required/);
+  assert.match(resetDoc, /AI_USAGE_RESET_REAL_CONSUME_ENABLED=1/);
+  assert.match(resetDoc, /裝置級跨帳號未決互鎖/);
+
+  const securityPath = new URL('../SECURITY.md', import.meta.url);
+  const security = fs.readFileSync(securityPath, 'utf8');
+  assert.match(security, /AI_USAGE_RESET_COMMANDS_ENABLED=1/);
+  assert.match(security, /AI_USAGE_RESET_REAL_CONSUME_ENABLED=1/);
+  assert.match(security, /r3_authorization_required/);
+  assert.match(security, /裝置級全域未決互鎖/);
 });

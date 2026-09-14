@@ -56,6 +56,7 @@ export const RESET_CREDIT_RESULT_CODES = [
   'protocol_error',
   'transport_error',
   'reconcile_required',
+  'r3_authorization_required',
 ] as const;
 
 export type ResetCreditResultCode = (typeof RESET_CREDIT_RESULT_CODES)[number];

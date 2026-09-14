@@ -41,3 +41,19 @@ export function pushProducersCollectionPath(uid: string): string {
 export function pushSubscriptionsCollectionPath(uid: string): string {
   return `users/${pathSegment(uid, 'uid')}/pushSubscriptions`;
 }
+
+export function resetRequestDocPath(uid: string, deviceId: string): string {
+  return `users/${pathSegment(uid, 'uid')}/devices/${pathSegment(deviceId, 'deviceId')}/resetControl/request`;
+}
+
+export function resetInventoryDocPath(uid: string, deviceId: string): string {
+  return `users/${pathSegment(uid, 'uid')}/devices/${pathSegment(deviceId, 'deviceId')}/resetControl/inventory`;
+}
+
+export function resetResultDocPath(uid: string, deviceId: string, commandId: string): string {
+  return `users/${pathSegment(uid, 'uid')}/devices/${pathSegment(deviceId, 'deviceId')}/resetResults/${pathSegment(commandId, 'commandId')}`;
+}
+
+export function resetResultsCollectionPath(uid: string, deviceId: string): string {
+  return `users/${pathSegment(uid, 'uid')}/devices/${pathSegment(deviceId, 'deviceId')}/resetResults`;
+}

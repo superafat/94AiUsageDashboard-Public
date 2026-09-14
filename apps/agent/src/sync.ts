@@ -1,8 +1,20 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseProviderPreference, parseUsageSnapshot, providerFamilyOf, resolveFamilyEnabled, type DeviceHealthSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
-import { readProviderPreferencesRest, readUsageHistoryRest, writeDeviceHealthRest, writeUsageHistoryRest, writeUsageSnapshotRest } from '@94ai/firebase';
+import { parseProviderPreference, parseUsageSnapshot, providerFamilyOf, resolveFamilyEnabled, validateResetIdentifier, type DeviceHealthSnapshot, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
+import {
+  deleteResetInventoryRest,
+  readProviderPreferencesRest,
+  readResetCommandRequestRest,
+  readUsageHistoryRest,
+  writeDeviceHealthRest,
+  writeResetExecutingResultRest,
+  writeResetInventoryRest,
+  writeResetTerminalResultRest,
+  writeUsageHistoryRest,
+  writeUsageSnapshotRest,
+} from '@94ai/firebase';
 import { normalizeOpenUsageLimits, readLegacyUsageHistory, type ProviderHistoryInput } from '@94ai/openusage';
 import { createAuthenticatedFirebaseContext, type AgentAuthConfig, type AuthenticatedFirebaseContext } from './auth';
 import { MacOSKeychainCredentialStore, type CredentialStore } from './credential-store';
@@ -11,6 +23,10 @@ import { buildHistorySnapshot, mergeHistory } from './history-sync';
 import { backgroundSyncInstalled } from './background';
 import { readPreferredLimits } from './engine-select';
 import { runPushNotificationSync } from './push-runtime';
+import { getOrCreateLocalPushKeys } from './local-push-keys';
+import { ResetCommandJournal } from './reset-command-journal';
+import { CodexResetAdapter } from './codex-reset-adapter';
+import { runResetCommandSync } from './reset-command-runtime';
 
 import { SENSITIVE_PATTERN } from '@94ai/core';
 
@@ -95,6 +111,11 @@ export interface SyncDependencies {
     preferences: ProviderPreference[],
     signal?: AbortSignal,
   ) => Promise<void>;
+  syncResetCommands?: (
+    auth: AuthenticatedFirebaseContext,
+    deviceId: string,
+    signal?: AbortSignal,
+  ) => Promise<void>;
   timeoutMs?: number;
 }
 
@@ -106,6 +127,7 @@ export interface SyncResult {
   providerErrorCode?: 'provider_write_failed';
   preferenceErrorCode?: 'preferences_read_failed';
   pushErrorCode?: 'push_dispatch_failed' | 'push_keys_failed';
+  resetCommandErrorCode?: 'reset_command_failed';
   failedProviders?: string[];
   partialFailure?: boolean;
 }
@@ -257,6 +279,18 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
         pushErrorCode = msg.includes('keys') ? 'push_keys_failed' : 'push_dispatch_failed';
       }
     }
+    let resetCommandErrorCode: SyncResult['resetCommandErrorCode'];
+    if (deps.syncResetCommands) {
+      try {
+        await withTimeout(
+          (signal) => deps.syncResetCommands!(auth, deviceId, signal),
+          timeoutMs,
+          'syncResetCommands',
+        );
+      } catch {
+        resetCommandErrorCode = 'reset_command_failed';
+      }
+    }
     const hasProviderFailures = failedProviders.length > 0;
     return {
       providerCount: providerSuccessCount,
@@ -266,10 +300,49 @@ export async function runSyncWithDependencies(deps: SyncDependencies): Promise<S
       ...(hasProviderFailures && providerSuccessCount > 0 ? { partialFailure: true } : {}),
       ...(historyErrorCode ? { historyErrorCode } : {}),
       ...(pushErrorCode ? { pushErrorCode } : {}),
+      ...(resetCommandErrorCode ? { resetCommandErrorCode } : {}),
     };
   } finally {
     await auth.close();
   }
+}
+
+export function isR3ResetConsumeAuthorized(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.AI_USAGE_RESET_REAL_CONSUME_ENABLED === '1';
+}
+
+export async function hasUnresolvedResetJournalsForDevice(input: {
+  journalDir: string;
+  backendId: string;
+  userId: string;
+  deviceId: string;
+}): Promise<boolean> {
+  if (!fs.existsSync(input.journalDir)) return false;
+  const rootStat = fs.lstatSync(input.journalDir);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('invalid_journal_root');
+  for (const entry of fs.readdirSync(input.journalDir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error('invalid_account_journal_path');
+    if (!entry.isDirectory()) continue;
+    const accountDir = resolveResetJournalAccountDir(input.journalDir, entry.name);
+    const journal = new ResetCommandJournal({
+      rootDir: accountDir,
+      backendId: input.backendId,
+      userId: input.userId,
+      deviceId: input.deviceId,
+      accountId: entry.name,
+    });
+    if (await journal.hasUnresolvedReconciliation()) return true;
+  }
+  return false;
+}
+
+export function resolveResetJournalAccountDir(journalDir: string, accountId: string): string {
+  const safeAccountId = validateResetIdentifier(accountId, 'account_id');
+  if (safeAccountId === '.' || safeAccountId === '..') throw new Error('invalid_account_journal_path');
+  const root = path.resolve(journalDir);
+  const candidate = path.resolve(root, safeAccountId);
+  if (candidate === root || !candidate.startsWith(`${root}${path.sep}`)) throw new Error('invalid_account_journal_path');
+  return candidate;
 }
 
 function statusPath(): string {
@@ -315,6 +388,58 @@ export async function runSync(
       if (pushRes.status === 'error') {
         throw new Error('push_dispatch_failed');
       }
+    },
+    syncResetCommands: async (auth, deviceId, signal) => {
+      const journalDir = path.join(os.homedir(), '.config', '94ai-usage-dashboard', 'journals');
+      await runResetCommandSync({
+        env: process.env,
+        backendId: config.firebase.projectId,
+        userId: auth.uid,
+        deviceId,
+        getLocalKeys: async () => {
+          const res = await getOrCreateLocalPushKeys({
+            backendId: config.firebase.projectId,
+            userId: auth.uid,
+            deviceId,
+          });
+          if (res.status !== 'ready' || !res.keys) {
+            throw new Error('local_keys_unavailable');
+          }
+          return res.keys;
+        },
+        readRequest: (uid, devId, sig) =>
+          readResetCommandRequestRest(config.firebase.projectId, auth.idToken, uid, devId, fetch, sig),
+        writeInventory: (envelope, sig) =>
+          writeResetInventoryRest(config.firebase.projectId, auth.idToken, envelope, fetch, sig, auth.uid),
+        deleteInventory: (uid, devId, sig) =>
+          deleteResetInventoryRest(config.firebase.projectId, auth.idToken, uid, devId, fetch, sig),
+        writeExecutingResult: (receipt, sig) =>
+          writeResetExecutingResultRest(config.firebase.projectId, auth.idToken, receipt, fetch, sig, auth.uid),
+        writeTerminalResult: (receipt, sig) =>
+          writeResetTerminalResultRest(config.firebase.projectId, auth.idToken, receipt, fetch, sig, auth.uid),
+        hasGlobalUnresolved: () => hasUnresolvedResetJournalsForDevice({
+          journalDir,
+          backendId: config.firebase.projectId,
+          userId: auth.uid,
+          deviceId,
+        }),
+        allowProviderMutation: isR3ResetConsumeAuthorized(process.env),
+        journal: (accountId: string) => {
+          const accountDir = resolveResetJournalAccountDir(journalDir, accountId);
+          if (!fs.existsSync(accountDir)) {
+            fs.mkdirSync(accountDir, { recursive: true, mode: 0o700 });
+          }
+          return new ResetCommandJournal({
+            rootDir: accountDir,
+            backendId: config.firebase.projectId,
+            userId: auth.uid,
+            deviceId,
+            accountId,
+          });
+        },
+        adapter: new CodexResetAdapter(),
+        signal,
+      });
     },
   });
   await writeLastSync(result);

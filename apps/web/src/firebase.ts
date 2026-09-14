@@ -6,9 +6,13 @@ import {
   signInWithGoogle,
   signOutUser,
   subscribeProviderPreferences,
+  subscribePushProducers,
+  subscribeResetInventory,
+  subscribeResetResult,
   subscribeUsageHistory,
   subscribeUsageSnapshots,
   updateNotificationPreferenceTransaction,
+  writeResetCommandRequest,
   writeProviderPreference,
 } from '@94ai/firebase';
 import {
@@ -16,10 +20,12 @@ import {
   type AuthClient,
   type ProviderPreferencesRepository,
   type PushNotificationService,
+  type ResetCommandService,
   type UsageHistoryRepository,
   type UsageRepository,
 } from '@94ai/client';
 import { createWebPushNotificationService } from './notifications';
+import { createResetCommandService } from './reset-commands';
 
 export function normalizeFirebaseAuthError(error: unknown): AuthClientError {
   const rawCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
@@ -46,6 +52,7 @@ export function createFirebaseClients(): {
   history: UsageHistoryRepository;
   preferences: ProviderPreferencesRepository;
   notifications: PushNotificationService;
+  resetCommands: ResetCommandService;
 } {
   const app = initializeApp(parseFirebaseConfig({
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -60,6 +67,14 @@ export function createFirebaseClients(): {
     db,
     backendId: app.options.projectId!,
     getCurrentUid: () => firebaseAuth.currentUser?.uid ?? null,
+  });
+
+  const resetCommands = createResetCommandService({
+    backendId: app.options.projectId!,
+    subscribeProducers: (uid, onValue, onError) => subscribePushProducers(db, uid, onValue, onError ?? (() => undefined)),
+    subscribeInventory: (uid, deviceId, onValue, onError) => subscribeResetInventory(db, uid, deviceId, onValue, onError),
+    writeRequest: (uid, request) => writeResetCommandRequest(db, uid, request),
+    subscribeResult: (uid, deviceId, commandId, onValue, onError) => subscribeResetResult(db, uid, deviceId, commandId, onValue, onError),
   });
 
   return {
@@ -106,5 +121,6 @@ export function createFirebaseClients(): {
       },
     },
     notifications,
+    resetCommands,
   };
 }

@@ -51,7 +51,7 @@
   <img src="docs/images/readme/provider-codex-desktop.png" alt="Codex quota details" width="100%">
 </p>
 
-Provider 詳細頁保留來源真正提供的資訊。缺少數值就省略或標示未知，**不猜值、不造假 0% / 100%**。Reset Credits 目前維持唯讀，不提供消耗按鈕。
+Provider 詳細頁保留來源真正提供的資訊。缺少數值就省略或標示未知，**不猜值、不造假 0% / 100%**。Reset Credits 在 Provider 詳細頁維持唯讀，獨立「重置額度」分頁具備安全配對傳輸架構（Mac 預設停用，需主動以 `AI_USAGE_RESET_COMMANDS_ENABLED=1` opt-in；真實消耗受額外 R3 獨立開關 `AI_USAGE_RESET_REAL_CONSUME_ENABLED=1` 防護且目前未授權，實際消耗為 0）。
 
 ## 支援來源
 
@@ -192,7 +192,7 @@ Local Agent 的長期登入憑證保存在 macOS Keychain。Firestore Security R
 
 - 不啟動 AI 工具。
 - 不控制 Mac。
-- 不遠端購買或重置額度。
+- 不遠端購買額度；Reset Credit 採本機受控通道，預設停用且需手動 opt-in，絕不自動消耗；真實消耗仍需 Owner 明確核准，R3 尚未授權且真實消耗為 0。
 - 不集中保存 Provider 憑證。
 - 不把 estimated cost 當成實際帳單。
 - 工作派工與模型調度不屬於本產品；若搭配其他系統，應由獨立的 **DevControl** 負責。

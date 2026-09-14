@@ -1,9 +1,24 @@
 import { collection, collectionGroup, doc, onSnapshot, query, runTransaction, setDoc, where, writeBatch, type Firestore } from 'firebase/firestore';
-import { KNOWN_PROVIDER_FAMILIES, parseProviderPreference, parseUsageHistorySnapshot, parseUsageSnapshot, resolveFamilyEnabled, type ProviderPreference, type UsageHistorySnapshot, type UsageSnapshot } from '@94ai/core';
-import { historyDocPath, historyChunkPath, preferenceDocPath, usageDocPath } from './paths';
+import {
+  KNOWN_PROVIDER_FAMILIES,
+  parseProviderPreference,
+  parseResetCommandReceipt,
+  parseResetCommandRequestRecord,
+  parseResetInventoryEnvelope,
+  parseUsageHistorySnapshot,
+  parseUsageSnapshot,
+  resolveFamilyEnabled,
+  type ProviderPreference,
+  type ResetCommandReceipt,
+  type ResetCommandRequestRecord,
+  type ResetInventoryEnvelope,
+  type UsageHistorySnapshot,
+  type UsageSnapshot,
+} from '@94ai/core';
+import { historyDocPath, historyChunkPath, preferenceDocPath, resetInventoryDocPath, resetRequestDocPath, resetResultDocPath, usageDocPath } from './paths';
 import { assembleUsageHistory, parseHistoryChunk, parseHistorySummary, splitHistoryForStorage, HISTORY_MAX_CHUNKS, type UsageHistoryChunk } from './history-storage';
 
-export { historyDocPath, preferenceDocPath, usageDocPath } from './paths';
+export { historyDocPath, preferenceDocPath, resetInventoryDocPath, resetRequestDocPath, resetResultDocPath, usageDocPath } from './paths';
 
 export async function writeUsageSnapshot(db: Firestore, uid: string, snapshot: UsageSnapshot): Promise<void> {
   const parsed = parseUsageSnapshot(snapshot);
@@ -160,6 +175,155 @@ export function subscribeProviderPreferences(
           preferences.push(parsed);
         }
         onValue(preferences);
+      } catch (err) {
+        if (stopped) return;
+        onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    (error) => {
+      if (stopped) return;
+      onError?.(error);
+    },
+  );
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
+}
+
+function resetTimestampMillis(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (value && typeof value === 'object' && 'toMillis' in value && typeof (value as {toMillis?: unknown}).toMillis === 'function') {
+    return (value as {toMillis(): number}).toMillis();
+  }
+  return Number.NaN;
+}
+
+function resetCloudInventoryEnvelope(value: unknown, now: number | Date): ResetInventoryEnvelope {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('reset_inventory_cloud_invalid');
+  const row = value as Record<string, unknown>;
+  const envelope = parseResetInventoryEnvelope({
+    version: row.version, type: row.type, publicKey: row.publicKey, signature: row.signature, inventory: row.inventory,
+  }, now);
+  const observed = resetTimestampMillis(row.observedAtTimestamp);
+  const expires = resetTimestampMillis(row.expiresAtTimestamp);
+  if (observed !== Date.parse(envelope.inventory.observedAt) || expires !== Date.parse(envelope.inventory.expiresAt)) {
+    throw new Error('reset_inventory_timestamp_shadow_mismatch');
+  }
+  return envelope;
+}
+
+export async function writeResetCommandRequest(
+  db: Firestore,
+  uid: string,
+  request: ResetCommandRequestRecord,
+  now: number | Date = Date.now(),
+): Promise<void> {
+  const parsed = parseResetCommandRequestRecord(request, now);
+  if (parsed.command.userId !== uid) {
+    throw new Error('auth UID does not match request UID');
+  }
+  const ref = doc(db, resetRequestDocPath(uid, parsed.command.targetDeviceId));
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists()) {
+      const existing = snap.data() as (Partial<ResetCommandRequestRecord> & {leaseExpiresAtTimestamp?: unknown}) | undefined;
+      const shadowExpires = resetTimestampMillis(existing?.leaseExpiresAtTimestamp);
+      const existingExpires = Number.isFinite(shadowExpires)
+        ? shadowExpires
+        : Date.parse(String(existing?.leaseExpiresAt ?? existing?.command?.expiresAt ?? ''));
+      const clock = typeof now === 'number' ? now : now.getTime();
+      const leaseExpired = Number.isFinite(existingExpires) && existingExpires <= clock;
+      if (!leaseExpired) {
+        const priorCommandId = existing?.command?.commandId;
+        if (typeof priorCommandId === 'string' && priorCommandId) {
+          const resultRef = doc(db, resetResultDocPath(uid, parsed.command.targetDeviceId, priorCommandId));
+          const resultSnap = await tx.get(resultRef);
+          if (!resultSnap.exists()) {
+            throw new Error('active_request_lease_active');
+          }
+        } else {
+          throw new Error('active_request_lease_active');
+        }
+      }
+    }
+    tx.set(ref, {
+      ...parsed,
+      requestedAtTimestamp: new Date(parsed.command.requestedAt),
+      leaseExpiresAtTimestamp: new Date(parsed.leaseExpiresAt),
+    });
+  });
+}
+
+export function subscribeResetInventory(
+  db: Firestore,
+  uid: string,
+  deviceId: string,
+  onValue: (envelope: ResetInventoryEnvelope | undefined) => void,
+  onError?: (error: Error) => void,
+  now: number | Date | (() => number | Date) = Date.now,
+): () => void {
+  const ref = doc(db, resetInventoryDocPath(uid, deviceId));
+  let stopped = false;
+  const unsubscribe = onSnapshot(
+    ref,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      if (stopped || snapshot.metadata?.fromCache || snapshot.metadata?.hasPendingWrites) return;
+      if (!snapshot.exists()) {
+        onValue(undefined);
+        return;
+      }
+      try {
+        const data = snapshot.data();
+        const currentClock = typeof now === 'function' ? now() : now;
+        const envelope = resetCloudInventoryEnvelope(data, currentClock);
+        if (envelope.inventory.userId !== uid || envelope.inventory.targetDeviceId !== deviceId) {
+          throw new Error('reset_inventory_identity_mismatch');
+        }
+        onValue(envelope);
+      } catch (err) {
+        if (stopped) return;
+        onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    (error) => {
+      if (stopped) return;
+      onError?.(error);
+    },
+  );
+  return () => {
+    stopped = true;
+    unsubscribe();
+  };
+}
+
+export function subscribeResetResult(
+  db: Firestore,
+  uid: string,
+  deviceId: string,
+  commandId: string,
+  onValue: (receipt: ResetCommandReceipt | undefined) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  const ref = doc(db, resetResultDocPath(uid, deviceId, commandId));
+  let stopped = false;
+  const unsubscribe = onSnapshot(
+    ref,
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      if (stopped || snapshot.metadata?.fromCache || snapshot.metadata?.hasPendingWrites) return;
+      if (!snapshot.exists()) {
+        onValue(undefined);
+        return;
+      }
+      try {
+        const data = snapshot.data();
+        const receipt = parseResetCommandReceipt(data);
+        if (receipt.userId !== uid || receipt.targetDeviceId !== deviceId || receipt.commandId !== commandId) {
+          throw new Error('reset_result_identity_mismatch');
+        }
+        onValue(receipt);
       } catch (err) {
         if (stopped) return;
         onError?.(err instanceof Error ? err : new Error(String(err)));

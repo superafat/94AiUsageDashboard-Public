@@ -184,6 +184,155 @@ service cloud.firestore {
         && (!('testRequestedAt' in data) || (data.testRequestedAt is string && data.testRequestedAt.size() <= 64 && validPreferenceTime(data.testRequestedAt)));
     }
 
+    function parseIsoTimestamp(value) {
+      let parts = value.split('T');
+      let dateParts = parts[0].split('-');
+      let timeParts = parts[1].split('Z')[0].split('[.]');
+      let hms = timeParts[0].split(':');
+      let frac = timeParts.size() > 1 ? timeParts[1] : '0';
+      let ms = frac.size() == 3 ? int(frac)
+        : (frac.size() == 2 ? int(frac) * 10 : int(frac) * 100);
+      return timestamp.date(int(dateParts[0]), int(dateParts[1]), int(dateParts[2]))
+        + duration.value(int(hms[0]), 'h')
+        + duration.value(int(hms[1]), 'm')
+        + duration.value(int(hms[2]), 's')
+        + duration.value(ms, 'ms');
+    }
+
+    function validResetCreditItem(item) {
+      return item is map
+        && item.keys().hasOnly(['creditId', 'expiresAt', 'status', 'resetType'])
+        && item.keys().hasAll(['creditId', 'status', 'resetType'])
+        && item.creditId is string && item.creditId.size() > 0 && item.creditId.size() <= 128
+        && (item.expiresAt == null || (item.expiresAt is string && item.expiresAt.size() <= 64 && validPreferenceTime(item.expiresAt)))
+        && item.status in ['available', 'redeeming', 'redeemed', 'unknown']
+        && item.resetType in ['codexRateLimits', 'unknown'];
+    }
+
+    function resetProducerKeyMatches(uid, deviceId, publicKey) {
+      return exists(/databases/$(database)/documents/users/$(uid)/pushProducers/$(deviceId))
+        && get(/databases/$(database)/documents/users/$(uid)/pushProducers/$(deviceId)).data.publicKey == publicKey;
+    }
+
+    function validResetCredits(credits) {
+      return credits is list && credits.size() <= 2
+        && (credits.size() < 1 || validResetCreditItem(credits[0]))
+        && (credits.size() < 2 || validResetCreditItem(credits[1]));
+    }
+
+    function validResetInventory(uid, deviceId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['version', 'type', 'publicKey', 'signature', 'observedAtTimestamp', 'expiresAtTimestamp', 'inventory'])
+        && data.keys().hasAll(['version', 'type', 'publicKey', 'signature', 'observedAtTimestamp', 'expiresAtTimestamp', 'inventory'])
+        && data.version == 1
+        && data.type == 'inventory'
+        && data.publicKey is string && data.publicKey.size() > 0 && data.publicKey.size() <= 256
+        && resetProducerKeyMatches(uid, deviceId, data.publicKey)
+        && data.signature is string && data.signature.size() > 0 && data.signature.size() <= 256
+        && data.inventory is map
+        && data.inventory.keys().hasOnly(['version', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'observedAt', 'expiresAt', 'availableCount', 'credits'])
+        && data.inventory.keys().hasAll(['version', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'observedAt', 'expiresAt', 'availableCount'])
+        && data.inventory.version == 1
+        && data.inventory.backendId is string && data.inventory.backendId.size() > 0 && data.inventory.backendId.size() <= 128
+        && data.inventory.userId == uid
+        && data.inventory.targetDeviceId == deviceId
+        && data.inventory.accountId is string && data.inventory.accountId.size() > 0 && data.inventory.accountId.size() <= 128
+        && data.inventory.observedAt is string && data.inventory.observedAt.size() <= 64 && validPreferenceTime(data.inventory.observedAt)
+        && data.inventory.expiresAt is string && data.inventory.expiresAt.size() <= 64 && validPreferenceTime(data.inventory.expiresAt)
+        && data.observedAtTimestamp is timestamp
+        && data.expiresAtTimestamp is timestamp
+        && data.expiresAtTimestamp > data.observedAtTimestamp
+        && data.expiresAtTimestamp - data.observedAtTimestamp <= duration.value(5, 'm')
+        && data.observedAtTimestamp <= request.time + duration.value(1, 'm')
+        && data.expiresAtTimestamp > request.time
+        && data.inventory.availableCount is int && data.inventory.availableCount >= 0 && data.inventory.availableCount <= 100
+        && (!('credits' in data.inventory) || data.inventory.credits == null || validResetCredits(data.inventory.credits));
+    }
+
+    function validResetCommand(command, uid, deviceId) {
+      return command is map
+        && command.keys().hasOnly(['version', 'commandId', 'idempotencyKey', 'creditId', 'accountId', 'targetDeviceId', 'userId', 'backendId', 'requestedAt', 'expiresAt'])
+        && command.keys().hasAll(['version', 'commandId', 'idempotencyKey', 'creditId', 'accountId', 'targetDeviceId', 'userId', 'backendId', 'requestedAt', 'expiresAt'])
+        && command.version == 1
+        && command.commandId is string && command.commandId.size() > 0 && command.commandId.size() <= 128
+        && command.idempotencyKey is string && command.idempotencyKey.size() > 0 && command.idempotencyKey.size() <= 128
+        && command.creditId is string && command.creditId.size() > 0 && command.creditId.size() <= 128
+        && command.accountId is string && command.accountId.size() > 0 && command.accountId.size() <= 128
+        && command.targetDeviceId == deviceId
+        && command.userId == uid
+        && command.backendId is string && command.backendId.size() > 0 && command.backendId.size() <= 128
+        && command.requestedAt is string && command.requestedAt.size() <= 64 && validPreferenceTime(command.requestedAt)
+        && command.expiresAt is string && command.expiresAt.size() <= 64 && validPreferenceTime(command.expiresAt);
+    }
+
+    function validResetRequest(uid, deviceId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['version', 'browserId', 'producerPublicKey', 'leaseExpiresAt', 'requestedAtTimestamp', 'leaseExpiresAtTimestamp', 'command'])
+        && data.keys().hasAll(['version', 'browserId', 'producerPublicKey', 'leaseExpiresAt', 'requestedAtTimestamp', 'leaseExpiresAtTimestamp', 'command'])
+        && data.version == 1
+        && data.browserId is string && data.browserId.size() > 0 && data.browserId.size() <= 128
+        && data.producerPublicKey is string && data.producerPublicKey.size() > 0 && data.producerPublicKey.size() <= 256
+        && resetProducerKeyMatches(uid, deviceId, data.producerPublicKey)
+        && data.leaseExpiresAt is string && data.leaseExpiresAt.size() <= 64 && validPreferenceTime(data.leaseExpiresAt)
+        && validResetCommand(data.command, uid, deviceId)
+        && data.command.expiresAt == data.leaseExpiresAt
+        && data.requestedAtTimestamp is timestamp
+        && data.leaseExpiresAtTimestamp is timestamp
+        && data.leaseExpiresAtTimestamp >= data.requestedAtTimestamp
+        && data.leaseExpiresAtTimestamp - data.requestedAtTimestamp <= duration.value(10, 'm')
+        && data.requestedAtTimestamp <= request.time + duration.value(1, 'm')
+        && data.leaseExpiresAtTimestamp <= request.time + duration.value(11, 'm')
+        && data.leaseExpiresAtTimestamp > request.time;
+    }
+
+    function validResetCreditResult(result, uid, deviceId, commandId) {
+      return result is map
+        && result.keys().hasOnly(['version', 'commandId', 'idempotencyKey', 'creditId', 'accountId', 'targetDeviceId', 'userId', 'backendId', 'state', 'code', 'executedAt', 'completedAt'])
+        && result.keys().hasAll(['version', 'commandId', 'idempotencyKey', 'creditId', 'accountId', 'targetDeviceId', 'userId', 'backendId', 'state', 'code', 'executedAt'])
+        && result.version == 1
+        && result.commandId == commandId
+        && result.idempotencyKey is string && result.idempotencyKey.size() > 0 && result.idempotencyKey.size() <= 128
+        && result.creditId is string && result.creditId.size() > 0 && result.creditId.size() <= 128
+        && result.accountId is string && result.accountId.size() > 0 && result.accountId.size() <= 128
+        && result.targetDeviceId == deviceId
+        && result.userId == uid
+        && result.backendId is string && result.backendId.size() > 0 && result.backendId.size() <= 128
+        && result.state in ['success', 'failed', 'unknown']
+        && result.code in ['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed', 'account_mismatch', 'credit_expired', 'credit_missing', 'credit_status_invalid', 'credit_ambiguous', 'idempotency_conflict', 'command_expired', 'command_mutation_rejected', 'unknown_outcome', 'timeout', 'protocol_error', 'transport_error', 'reconcile_required', 'r3_authorization_required']
+        && result.executedAt is string && result.executedAt.size() <= 64 && validPreferenceTime(result.executedAt)
+        && (!('completedAt' in result) || (result.completedAt is string && result.completedAt.size() <= 64 && validPreferenceTime(result.completedAt)
+          && parseIsoTimestamp(result.completedAt) >= parseIsoTimestamp(result.executedAt)));
+    }
+
+    function validResetResult(uid, deviceId, commandId) {
+      let data = request.resource.data;
+      return data.version == 1
+        && (data.type == 'executing' || data.type == 'terminal')
+        && data.publicKey is string && data.publicKey.size() > 0 && data.publicKey.size() <= 256
+        && resetProducerKeyMatches(uid, deviceId, data.publicKey)
+        && data.signature is string && data.signature.size() > 0 && data.signature.size() <= 256
+        && data.backendId is string && data.backendId.size() > 0 && data.backendId.size() <= 128
+        && data.userId == uid
+        && data.targetDeviceId == deviceId
+        && data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 128
+        && data.commandId == commandId
+        && data.idempotencyKey is string && data.idempotencyKey.size() > 0 && data.idempotencyKey.size() <= 128
+        && data.creditId is string && data.creditId.size() > 0 && data.creditId.size() <= 128
+        && data.executedAt is string && data.executedAt.size() <= 64 && validPreferenceTime(data.executedAt)
+        && ((data.type == 'executing'
+            && data.keys().hasOnly(['version', 'type', 'publicKey', 'signature', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'commandId', 'idempotencyKey', 'creditId', 'executedAt'])
+            && data.keys().hasAll(['version', 'type', 'publicKey', 'signature', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'commandId', 'idempotencyKey', 'creditId', 'executedAt']))
+          || (data.type == 'terminal'
+            && data.keys().hasOnly(['version', 'type', 'publicKey', 'signature', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'commandId', 'idempotencyKey', 'creditId', 'executedAt', 'result'])
+            && data.keys().hasAll(['version', 'type', 'publicKey', 'signature', 'backendId', 'userId', 'targetDeviceId', 'accountId', 'commandId', 'idempotencyKey', 'creditId', 'executedAt', 'result'])
+            && validResetCreditResult(data.result, uid, deviceId, commandId)
+            && data.result.backendId == data.backendId
+            && data.result.accountId == data.accountId
+            && data.result.idempotencyKey == data.idempotencyKey
+            && data.result.creditId == data.creditId
+            && data.result.executedAt == data.executedAt));
+    }
+
     match /{path=**}/providers/{providerId} {
       allow list: if request.auth != null && resource.data.userId == request.auth.uid;
     }
@@ -234,7 +383,9 @@ service cloud.firestore {
 
     match /users/{uid}/pushProducers/{deviceId} {
       allow get, list: if signedInAs(uid);
-      allow create, update: if signedInAs(uid) && validPushProducer(uid, deviceId);
+      allow create: if signedInAs(uid) && validPushProducer(uid, deviceId);
+      allow update: if signedInAs(uid) && validPushProducer(uid, deviceId)
+        && request.resource.data.publicKey == resource.data.publicKey;
       allow delete: if false;
     }
 
@@ -244,6 +395,40 @@ service cloud.firestore {
       allow update: if signedInAs(uid) && validPushSubscription(uid, browserId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['testRequestId', 'testRequestedAt']);
       allow delete: if signedInAs(uid);
+    }
+
+    match /users/{uid}/devices/{deviceId}/resetControl/inventory {
+      allow get: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && validResetInventory(uid, deviceId);
+      // Deletion only invalidates stale actionable UI state; it cannot authorize a provider mutation.
+      allow delete: if signedInAs(uid);
+    }
+
+    match /users/{uid}/devices/{deviceId}/resetControl/request {
+      allow get: if signedInAs(uid);
+      allow create: if signedInAs(uid) && validResetRequest(uid, deviceId);
+      allow update: if signedInAs(uid) && validResetRequest(uid, deviceId)
+        && (
+          request.time >= resource.data.leaseExpiresAtTimestamp
+          || exists(/databases/$(database)/documents/users/$(uid)/devices/$(deviceId)/resetResults/$(resource.data.command.commandId))
+        );
+      allow delete: if false;
+    }
+
+    match /users/{uid}/devices/{deviceId}/resetResults/{commandId} {
+      allow get, list: if signedInAs(uid);
+      allow create: if signedInAs(uid) && validResetResult(uid, deviceId, commandId);
+      allow update: if signedInAs(uid) && validResetResult(uid, deviceId, commandId)
+        && resource.data.type == 'executing'
+        && request.resource.data.type == 'terminal'
+        && request.resource.data.commandId == resource.data.commandId
+        && request.resource.data.idempotencyKey == resource.data.idempotencyKey
+        && request.resource.data.creditId == resource.data.creditId
+        && request.resource.data.accountId == resource.data.accountId
+        && request.resource.data.backendId == resource.data.backendId
+        && request.resource.data.publicKey == resource.data.publicKey
+        && request.resource.data.executedAt == resource.data.executedAt;
+      allow delete: if false;
     }
   }
 }
