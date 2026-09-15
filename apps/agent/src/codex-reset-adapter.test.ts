@@ -10,6 +10,8 @@ import {
   type CodexRpcTransport,
   type ExecutionClaim,
   type SpawnFunction,
+  resolveCodexExecutable,
+  isStandaloneCodexExecutable,
 } from './codex-reset-adapter';
 import { ResetCommandJournal } from './reset-command-journal';
 import type { ResetCreditCommand } from '@94ai/core';
@@ -106,6 +108,37 @@ class FakeTransport implements CodexRpcTransport {
 }
 
 describe('CodexResetAdapter', () => {
+  it('rejects script wrappers that still depend on PATH', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-wrapper-'));
+    const wrapper = path.join(root, 'codex');
+    fs.writeFileSync(wrapper, '#!/bin/zsh\nexec /usr/bin/env node fake.js\n', { mode: 0o755 });
+    expect(isStandaloneCodexExecutable(wrapper)).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('resolves a trusted absolute Codex executable without relying on LaunchAgent PATH', () => {
+    const resolved = resolveCodexExecutable({
+      homeDir: '/workspace/tester',
+      pathValue: '/usr/bin:/bin:/usr/sbin:/sbin',
+      isExecutable: (candidate) => candidate === '/workspace/tester/.local/bin/codex',
+    });
+    expect(resolved).toBe('/workspace/tester/.local/bin/codex');
+    expect(resolved).not.toBe('codex');
+  });
+
+  it('resolves PATH candidates to absolute paths and fails closed when none are executable', () => {
+    expect(resolveCodexExecutable({
+      homeDir: '/workspace/tester',
+      pathValue: '/opt/homebrew/bin:/usr/bin',
+      isExecutable: (candidate) => candidate === '/opt/homebrew/bin/codex',
+    })).toBe('/opt/homebrew/bin/codex');
+    expect(() => resolveCodexExecutable({
+      homeDir: '/workspace/tester',
+      pathValue: '/usr/bin:/bin',
+      isExecutable: () => false,
+    })).toThrow('codex_executable_unavailable');
+  });
+
   it('verifies spawn options strictly enforce no shell and exact binary + args', () => {
     let capturedCmd = '';
     let capturedArgs: string[] = [];

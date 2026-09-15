@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   parseResetCreditInventory,
   validateResetIdentifier,
@@ -48,6 +51,75 @@ export type SpawnFunction = (
   args: string[],
   options: { stdio: ['pipe', 'pipe', 'pipe']; shell: false },
 ) => ChildProcess;
+
+export interface ResolveCodexExecutableOptions {
+  homeDir?: string | undefined;
+  pathValue?: string | undefined;
+  isExecutable?: ((candidate: string) => boolean) | undefined;
+}
+
+export function isStandaloneCodexExecutable(candidate: string): boolean {
+  if (!path.isAbsolute(candidate)) return false;
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    if (!fs.statSync(candidate).isFile()) return false;
+    const fd = fs.openSync(candidate, 'r');
+    try {
+      const prefix = Buffer.alloc(2);
+      const count = fs.readSync(fd, prefix, 0, 2, 0);
+      return count === 2 && prefix.toString('utf8') !== '#!';
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+function versionedNativeCodexCandidates(homeDir: string): string[] {
+  const root = path.join(homeDir, '.local', 'share', 'codex-versions');
+  let versions: string[] = [];
+  try {
+    versions = fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  } catch {
+    return [];
+  }
+  const platformParts = process.arch === 'x64'
+    ? ['codex-darwin-x64', 'x86_64-apple-darwin']
+    : ['codex-darwin-arm64', 'aarch64-apple-darwin'];
+  return versions.map((version) => path.join(
+    root,
+    version,
+    'node_modules',
+    '@openai',
+    platformParts[0]!,
+    'vendor',
+    platformParts[1]!,
+    'bin',
+    'codex',
+  ));
+}
+
+export function resolveCodexExecutable(options: ResolveCodexExecutableOptions = {}): string {
+  const homeDir = options.homeDir ?? os.homedir();
+  const pathValue = options.pathValue ?? process.env.PATH ?? '';
+  const isExecutable = options.isExecutable ?? isStandaloneCodexExecutable;
+  const candidates = [
+    ...versionedNativeCodexCandidates(homeDir),
+    '/Applications/ChatGPT.app/Contents/Resources/codex',
+    path.join(homeDir, '.local', 'bin', 'codex'),
+    '/opt/homebrew/bin/codex',
+    '/usr/local/bin/codex',
+    ...pathValue.split(path.delimiter).filter((dir) => path.isAbsolute(dir)).map((dir) => path.join(dir, 'codex')),
+  ];
+  for (const candidate of new Set(candidates)) {
+    if (isExecutable(candidate)) return candidate;
+  }
+  throw new Error('codex_executable_unavailable');
+}
 
 export interface CodexResetAdapterOptions {
   spawnProcess?: SpawnFunction | undefined;
@@ -376,6 +448,7 @@ function parseProviderRateLimitsResult(
 
 interface AdapterConfig {
   spawnProcess: SpawnFunction;
+  resolveExecutable: boolean;
   injectedTransport: CodexRpcTransport | undefined;
   timeoutMs: number;
   maxLineBytes: number;
@@ -419,7 +492,8 @@ function createSession(adapter: CodexResetAdapter): AdapterSession {
   if (config.injectedTransport) {
     transport = config.injectedTransport;
   } else {
-    const child = config.spawnProcess('codex', ['app-server', '--stdio'], {
+    const executable = config.resolveExecutable ? resolveCodexExecutable() : 'codex';
+    const child = config.spawnProcess(executable, ['app-server', '--stdio'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
     });
@@ -806,6 +880,7 @@ export class CodexResetAdapter {
 
     ADAPTER_CONFIGS.set(this, {
       spawnProcess: options.spawnProcess ?? ((cmd, args, opts) => spawn(cmd, args, opts)),
+      resolveExecutable: options.spawnProcess === undefined,
       injectedTransport: options.transport,
       timeoutMs: options.timeoutMs ?? 15000,
       maxLineBytes: options.maxLineBytes ?? 64 * 1024,
@@ -816,7 +891,8 @@ export class CodexResetAdapter {
 
   public testSpawnConfig(): void {
     const config = getAdapterConfig(this);
-    config.spawnProcess('codex', ['app-server', '--stdio'], {
+    const executable = config.resolveExecutable ? resolveCodexExecutable() : 'codex';
+    config.spawnProcess(executable, ['app-server', '--stdio'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
     });

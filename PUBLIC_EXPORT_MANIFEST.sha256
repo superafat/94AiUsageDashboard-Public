@@ -1,4 +1,4 @@
-# source_commit: e4ccf302a0655c1ae17ffda800363a6c0f7f252f
+# source_commit: 872975d447d1473a0e4a6b3f9a62ff1164d23d41
 9e4d6175244f3dee5ca35517f51c20c9c661765fa10ed2e3511829f636ec00e9  .env.example
 0834adca736ef9fd86d0b1f2b8dea03c3b55d15d5a62e28024118234725c3ebe  .eslintrc.cjs
 42be53a84944b02e02110e71bb1d0eaead18ee6d9e7f909fd731f11abcd607d0  .github/ISSUE_TEMPLATE/bug.yml
@@ -14,8 +14,8 @@ b70efb3831664a47bc2f084544e4ac7576994b90d614306fda69ff3225105a38  apps/agent/src
 a1e6e0c25120713d9d96c37cc00bd0ded5800e43f629eb9a88b1741c241516b1  apps/agent/src/background.test.ts
 f10d1cf2464ddd87e6959c1be83cd741d1f47c4a9d6338fcd20c71fc37a326ac  apps/agent/src/background.ts
 89d1fabc326d5a9a18c27d5aa9fdf4bf6db908355a437664dd85f545b2e27f85  apps/agent/src/cli.ts
-5c5e629d845c3e5416f39375723493575bc1a1ce7ba4eed35adfeb19287088d9  apps/agent/src/codex-reset-adapter.test.ts
-8b1da6acfab54226fb54846d5ab5a34827cb7c3aee5e17ea6918d711aa2ba079  apps/agent/src/codex-reset-adapter.ts
+8c5386b73f25ae5d041519b568c79066b744fcf705c045752b7fcda8790a8ac2  apps/agent/src/codex-reset-adapter.test.ts
+3863f1d73ef4f1e8881307bf7b8f139adc7aa201b4c99841ca82ca6ecdb5f7ec  apps/agent/src/codex-reset-adapter.ts
 692a846c6c0e96f3be8030fd37e069ca27a4658d811436e20607823c5fc6f72d  apps/agent/src/credential-store.test.ts
 fba828818644a11c409ea2cfd7a09260185e830da255c152fe162f57d4fc451d  apps/agent/src/credential-store.ts
 5ab203371f20a4a434311a0c9ef15fa37f581f0e00d369a64c28db6f136cf196  apps/agent/src/device-id.test.ts
