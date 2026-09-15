@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { AppRoot, isSnapshotStale } from './AppRoot';
+import { AppRoot, isSnapshotStale, visibleUsageItems } from './AppRoot';
 import type { AppClientServices, AppLocation, AppUser } from '@94ai/client';
 import type { UsageSnapshot } from '@94ai/core';
 
@@ -334,6 +334,31 @@ describe('App', () => {
     expect(screen.getAllByRole('heading', { name: 'Claude Code' })).toHaveLength(1);
     expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.queryByText('Old')).not.toBeInTheDocument();
+  });
+
+  it('hides a stale snapshot when the same providerId moves to a fresh replacement device', () => {
+    const current = {
+      ...base,
+      providerId: 'opencode',
+      deviceId: 'new-device',
+      plan: 'Current',
+      fetchedAt: '2026-09-05T10:00:00.000Z',
+      syncedAt: '2026-09-05T10:00:05.000Z',
+      expiresAt: '2026-09-05T10:05:00.000Z',
+      stale: false,
+      resources: { session: { kind: 'consumption', unit: 'percent', remaining: 100 } },
+    } satisfies UsageSnapshot;
+    const oldDevice = {
+      ...current,
+      deviceId: 'old-device',
+      plan: 'Old device',
+      fetchedAt: '2026-09-04T20:21:05.000Z',
+      syncedAt: '2026-09-04T20:23:42.000Z',
+      expiresAt: '2026-09-04T20:26:05.000Z',
+      stale: true,
+    } satisfies UsageSnapshot;
+    const visible = visibleUsageItems([oldDevice, current], Date.parse('2026-09-05T10:00:10.000Z'));
+    expect(visible).toEqual([current]);
   });
 
   it('keeps multiple fresh account-scoped snapshots for the same provider family', () => {

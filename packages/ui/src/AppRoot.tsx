@@ -30,7 +30,6 @@ export function visibleUsageItems(items: UsageSnapshot[], now: number): UsageSna
     if (Object.keys(item.resources).length === 0) return false;
     return !items.some((candidate) =>
       candidate !== item
-      && candidate.deviceId === item.deviceId
       && candidate.providerId === item.providerId
       && !isSnapshotStale(candidate, now));
   });

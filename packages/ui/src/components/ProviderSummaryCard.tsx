@@ -6,6 +6,7 @@ const PRIORITY: Record<string, Array<{ key: string; label: string }>> = {
   codex: [{ key: 'session', label: '5 小時額度' }, { key: 'weekly', label: '每週額度' }],
   antigravity: [{ key: 'geminiSession', label: 'Gemini 5 小時' }, { key: 'geminiWeekly', label: 'Gemini 每週' }],
   claude: [{ key: 'session', label: '5 小時額度' }, { key: 'weekly', label: '每週額度' }],
+  opencode: [{ key: 'session', label: '5 小時額度' }, { key: 'weekly', label: '每週額度' }, { key: 'monthly', label: '每月額度' }],
 };
 
 export function ProviderSummaryCard({ snapshot, now, onOpen }: { snapshot: UsageSnapshot; now: Date; onOpen: () => void }) {

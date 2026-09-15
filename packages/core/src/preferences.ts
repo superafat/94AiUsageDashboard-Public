@@ -67,6 +67,11 @@ export const RESOURCE_DISPLAY_LABELS: Record<string, Record<string, string>> = {
     sonnet: 'Sonnet 每週',
     extraUsage: '額外用量',
   },
+  opencode: {
+    session: '5 小時額度',
+    weekly: '每週額度',
+    monthly: '每月額度',
+  },
 };
 
 export function isKnownProviderFamily(family: string): family is KnownProviderFamily {

@@ -17,6 +17,7 @@ const ORDER: Record<string, string[]> = {
   codex: ['session', 'weekly', 'spark', 'sparkWeekly', 'gpt-reserve', 'gptReserve', 'reserve', 'credits', 'creditValue'],
   antigravity: ['geminiSession', 'geminiWeekly', 'nonGeminiSession', 'nonGeminiWeekly'],
   claude: ['session', 'weekly', 'fable', 'sonnet', 'extraUsage'],
+  opencode: ['session', 'weekly', 'monthly'],
 };
 
 export function providerFamily(providerId: string): ProviderFamily {

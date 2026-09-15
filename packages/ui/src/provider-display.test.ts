@@ -36,6 +36,23 @@ describe('shared provider presentation', () => {
       ['weekly', '每週額度'],
     ]);
   });
+  it('uses Traditional Chinese labels and stable order for OpenCode quota resources', () => {
+    const entries = resourceEntries({
+      ...base,
+      providerId: 'opencode',
+      resources: {
+        monthly: { kind: 'consumption', unit: 'percent', remaining: 79 },
+        session: { kind: 'consumption', unit: 'percent', remaining: 100 },
+        weekly: { kind: 'consumption', unit: 'percent', remaining: 100 },
+      },
+    });
+    expect(entries.map((item) => [item.key, item.label])).toEqual([
+      ['session', '5 小時額度'],
+      ['weekly', '每週額度'],
+      ['monthly', '每月額度'],
+    ]);
+  });
+
   it('sorts guaranteed provider families before generic providers', () => {
     const snapshots = [
       { ...base, providerId: 'other' },
