@@ -5,6 +5,33 @@ import type { ResetCommandProgress, ResetCommandService, ResetVerifiedInventory 
 import { ResetCreditList } from '../components/ResetCreditList';
 import { providerFamily } from '../provider-display';
 
+const PRODUCER_FRESHNESS_MS = 10 * 60_000;
+
+function freshResetProducers(producers: PushProducerRecord[], nowMs: number): PushProducerRecord[] {
+  return producers
+    .filter((item) => {
+      const updatedAt = Date.parse(item.updatedAt);
+      return Number.isFinite(updatedAt)
+        && updatedAt <= nowMs + 60_000
+        && nowMs - updatedAt <= PRODUCER_FRESHNESS_MS;
+    })
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.deviceId.localeCompare(b.deviceId));
+}
+
+function macDisplayName(deviceId: string, producers: PushProducerRecord[]): string {
+  if (producers.length <= 1) return '這台 Mac';
+  const index = producers.findIndex((item) => item.deviceId === deviceId);
+  return index >= 0 ? `Mac ${index + 1}` : '這台 Mac';
+}
+
+function formatResetExpiry(value: string | null | undefined): string {
+  if (!value) return '未提供到期時間';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '到期時間無法讀取';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function terminalLabel(progress: ResetCommandProgress | undefined): string | null {
   if (!progress) return null;
   if (progress.status === 'waiting') return '等待 Mac';
@@ -54,6 +81,7 @@ export function ResetCreditsScreen({
   const codex = items.find((item) => providerFamily(item.providerId) === 'codex');
   const resource = codex?.resources.rateLimitResets;
   const resolved = resolveResetCredits(resource, now);
+  const nowMs = now.getTime();
   const [producers, setProducers] = useState<PushProducerRecord[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [inventory, setInventory] = useState<ResetVerifiedInventory>({ status: 'unavailable' });
@@ -72,22 +100,22 @@ export function ResetCreditsScreen({
   useEffect(() => {
     if (!resetCommands || !userId) { setProducers([]); return; }
     return resetCommands.subscribeProducers(userId, (next) => {
-      setProducers(next);
+      const fresh = freshResetProducers(next, nowMs);
+      setProducers(fresh);
       setSelectedDeviceId((current) => {
-        const currentProducer = current ? next.find((item) => item.deviceId === current) : undefined;
+        const currentProducer = current ? fresh.find((item) => item.deviceId === current) : undefined;
         if (currentProducer) {
           const currentPin = resetCommands.getPairing(userId, currentProducer.deviceId);
           if (!currentPin || currentPin.publicKey === currentProducer.publicKey) return current;
         }
-        const newestFirst = [...next].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-        const validPaired = newestFirst.find((item) => {
+        const validPaired = fresh.find((item) => {
           const pin = resetCommands.getPairing(userId, item.deviceId);
           return pin?.publicKey === item.publicKey;
         });
-        return validPaired?.deviceId ?? newestFirst[0]?.deviceId ?? '';
+        return validPaired?.deviceId ?? fresh[0]?.deviceId ?? '';
       });
     }, () => setCommandError('無法讀取 Mac 配對狀態'));
-  }, [resetCommands, userId]);
+  }, [resetCommands, userId, nowMs]);
 
   const producer = useMemo(
     () => producers.find((item) => item.deviceId === selectedDeviceId),
@@ -163,6 +191,8 @@ export function ResetCreditsScreen({
 
   const progress = producer ? progressByDevice[producer.deviceId] : undefined;
   const progressLabel = terminalLabel(progress);
+  const producerLabel = producer ? macDisplayName(producer.deviceId, producers) : '這台 Mac';
+  const showInventoryTrustError = !progressLabel && (activeInventory.status === 'key_mismatch' || activeInventory.status === 'unverified');
   const hasCommandLane = Boolean(resetCommands && userId);
   const paired = Boolean(resetCommands && userId && producer && resetCommands.getPairing(userId, producer.deviceId));
 
@@ -173,14 +203,14 @@ export function ResetCreditsScreen({
 
     {hasCommandLane ? <section className="section reset-command-panel" aria-label="重置券安全操作">
       <div className="section-title-row"><div><p className="screen-eyebrow">已配對的 Mac</p><h2>安全使用重置券</h2></div></div>
-      {producers.length > 1 ? <label className="reset-device-select">選擇 Mac<select aria-label="選擇 Mac" value={selectedDeviceId} onChange={(event) => { setSelectedDeviceId(event.target.value); setInventory({ status: 'unavailable' }); setConfirmation(undefined); setCommandError(undefined); }}>{producers.map((item) => <option key={item.deviceId} value={item.deviceId}>{item.deviceId}</option>)}</select></label> : null}
-      {producer ? <p className="reset-device-meta">Mac：<strong>{producer.deviceId}</strong></p> : <p className="empty-inline">尚未偵測到可配對的 Mac 同步程式</p>}
+      {producers.length > 1 ? <label className="reset-device-select">選擇 Mac<select aria-label="選擇 Mac" value={selectedDeviceId} onChange={(event) => { setSelectedDeviceId(event.target.value); setInventory({ status: 'unavailable' }); setConfirmation(undefined); setCommandError(undefined); }}>{producers.map((item, index) => <option key={item.deviceId} value={item.deviceId}>{`Mac ${index + 1}`}</option>)}</select></label> : null}
+      {producer ? <p className="reset-device-meta"><strong>{producerLabel} 已連線</strong></p> : <p className="empty-inline">尚未偵測到可配對的 Mac 同步程式</p>}
       {producer && !paired ? <button type="button" className="primary-button" onClick={handlePair}>配對這台 Mac</button> : null}
-      {activeInventory.status === 'key_mismatch' || activeInventory.status === 'unverified' ? <div className="info-note" role="alert"><strong>無法驗證 Mac 回報</strong><span>裝置金鑰已變更或簽章無法驗證。請重新配對新的裝置編號，系統不會自動更換金鑰。</span></div> : null}
+      {showInventoryTrustError ? <div className="info-note" role="alert"><strong>這台 Mac 需要重新建立安全連線</strong><span>目前無法確認這台 Mac 的安全資料，請重新配對後再試。</span></div> : null}
       {paired && activeInventory.status === 'unavailable' && !progressLabel ? <p className="empty-inline">等待 Mac 更新可用重置券</p> : null}
       {activeInventory.status === 'ready' ? <div className="reset-action-card">
-        <p>帳號：<strong>{activeInventory.envelope.inventory.accountId}</strong></p>
-        <p>券到期：<strong>{activeInventory.credit.expiresAt ?? '未知'}</strong></p>
+        <p>帳號：<strong>目前登入的 Codex 帳號</strong></p>
+        <p>券到期：<strong>{formatResetExpiry(activeInventory.credit.expiresAt)}</strong></p>
         <button type="button" className="primary-button" disabled={submitting} onClick={() => setConfirmation(activeInventory)}>使用 1 張重置券</button>
       </div> : null}
       {progressLabel ? <div className="info-note" role={progress?.status === 'unverified' || progress?.status === 'uncertain' ? 'alert' : 'status'}><strong>{progressLabel}</strong></div> : null}
@@ -190,9 +220,9 @@ export function ResetCreditsScreen({
     {confirmation?.status === 'ready' ? <div className="reset-confirm-backdrop" role="presentation">
       <div className="reset-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-confirm-title">
         <h2 id="reset-confirm-title">確認使用重置券</h2>
-        <p>Mac：<strong>{confirmation.pin.deviceId}</strong></p>
-        <p>帳號：<strong>{confirmation.envelope.inventory.accountId}</strong></p>
-        <p>券到期：<strong>{confirmation.credit.expiresAt ?? '未知'}</strong></p>
+        <p>裝置：<strong>{macDisplayName(confirmation.pin.deviceId, producers)}</strong></p>
+        <p>帳號：<strong>目前登入的 Codex 帳號</strong></p>
+        <p>券到期：<strong>{formatResetExpiry(confirmation.credit.expiresAt)}</strong></p>
         <p className="reset-confirm-warning"><strong>這次只會使用 1 張重置券。</strong>此操作不可逆，不會自動改用其他券。</p>
         <div className="reset-confirm-actions"><button type="button" onClick={() => setConfirmation(undefined)}>取消</button><button type="button" className="primary-button" disabled={submitting} onClick={() => void confirmReset()}>確認使用 1 張重置券</button></div>
       </div>

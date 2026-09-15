@@ -45,14 +45,15 @@ function service(overrides: Partial<ResetCommandService> = {}): ResetCommandServ
 }
 
 describe('ResetCreditsScreen R2 command lane', () => {
-  it('shows explicit second confirmation with device/account/expiry and dispatches exactly once', async () => {
+  it('shows plain-language second confirmation and dispatches exactly once', async () => {
     const dispatch = vi.fn(async () => request);
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={service({ dispatch })} />);
     expect(await screen.findByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: '使用 1 張重置券' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('mac-1');
-    expect(screen.getByRole('dialog')).toHaveTextContent('acct-1');
-    expect(screen.getByRole('dialog')).toHaveTextContent('2026-09-20T00:00:00.000Z');
+    expect(screen.getByRole('dialog')).toHaveTextContent('這台 Mac');
+    expect(screen.getByRole('dialog')).toHaveTextContent('目前登入的 Codex 帳號');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('mac-1');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('acct-1');
     expect(screen.getByRole('dialog')).toHaveTextContent('只會使用 1 張重置券');
     const confirm = screen.getByRole('button', { name: '確認使用 1 張重置券' });
     fireEvent.click(confirm); fireEvent.click(confirm);
@@ -69,7 +70,7 @@ describe('ResetCreditsScreen R2 command lane', () => {
 
     const mismatch = service({ subscribeInventory: (_u, _p, onValue) => { onValue({ status: 'key_mismatch' }); return () => undefined; } });
     rerender(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={mismatch} />);
-    expect(await screen.findByText('無法驗證 Mac 回報')).toBeInTheDocument();
+    expect(await screen.findByText('這台 Mac 需要重新建立安全連線')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '使用 1 張重置券' })).not.toBeInTheDocument();
   });
 
@@ -158,7 +159,7 @@ describe('ResetCreditsScreen R2 command lane', () => {
     });
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={drifting} />);
     fireEvent.click(await screen.findByRole('button', { name: '使用 1 張重置券' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('2026-09-20T00:00:00.000Z');
+    expect(screen.getByRole('dialog')).toHaveTextContent('2026年9月20日');
 
     const changedEnvelope: ResetInventoryEnvelope = {
       ...envelope,
@@ -239,8 +240,73 @@ describe('ResetCreditsScreen R2 command lane', () => {
     });
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={rotating} />);
     await screen.findByRole('button', { name: '配對這台 Mac' });
-    expect(screen.getByRole('combobox', { name: '選擇 Mac' })).toHaveValue('mac-new');
+    expect(screen.queryByRole('combobox', { name: '選擇 Mac' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '配對這台 Mac' })).toBeEnabled();
+  });
+
+
+  it('hides stale producer identities so one physical Mac does not appear as two Macs', async () => {
+    const staleProducer: PushProducerRecord = { ...producer, deviceId: 'old-device-id', updatedAt: '2026-09-12T20:00:00.000Z' };
+    const freshProducer: PushProducerRecord = { ...producer, deviceId: 'new-device-id', updatedAt: now.toISOString() };
+    const freshPin: ResetPairingPin = { ...pin, deviceId: 'new-device-id' };
+    const freshEnvelope: ResetInventoryEnvelope = {
+      ...envelope,
+      inventory: { ...envelope.inventory, targetDeviceId: 'new-device-id' },
+    };
+    const freshReady: ResetVerifiedInventory = {
+      status: 'ready', pin: freshPin, producer: freshProducer, envelope: freshEnvelope, credit: freshEnvelope.inventory.credits![0]!,
+    };
+    const onePhysicalMac = service({
+      subscribeProducers: (_uid, onValue) => { onValue([staleProducer, freshProducer]); return () => undefined; },
+      getPairing: (_uid, deviceId) => deviceId === 'new-device-id' ? freshPin : null,
+      subscribeInventory: (_uid, nextProducer, onValue) => {
+        if (nextProducer.deviceId === 'new-device-id') onValue(freshReady);
+        return () => undefined;
+      },
+    });
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={onePhysicalMac} />);
+    expect(await screen.findByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
+    expect(screen.queryByRole('combobox', { name: '選擇 Mac' })).not.toBeInTheDocument();
+    expect(screen.queryByText('old-device-id')).not.toBeInTheDocument();
+    expect(screen.queryByText('new-device-id')).not.toBeInTheDocument();
+    expect(screen.getByText('這台 Mac 已連線')).toBeInTheDocument();
+  });
+
+  it('uses plain-language device/account/expiry text instead of raw technical identifiers', async () => {
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={service()} />);
+    expect(await screen.findByText('目前登入的 Codex 帳號')).toBeInTheDocument();
+    expect(screen.queryByText('mac-1')).not.toBeInTheDocument();
+    expect(screen.queryByText('acct-1')).not.toBeInTheDocument();
+    expect(screen.queryByText('2026-09-20T00:00:00.000Z')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '使用 1 張重置券' }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('這台 Mac');
+    expect(dialog).toHaveTextContent('目前登入的 Codex 帳號');
+    expect(dialog).not.toHaveTextContent('mac-1');
+    expect(dialog).not.toHaveTextContent('acct-1');
+    expect(dialog).not.toHaveTextContent('2026-09-20T00:00:00.000Z');
+  });
+
+  it('never shows an inventory verification warning beside a verified R3 safety terminal result', async () => {
+    const terminalReceipt = {
+      version: 1 as const, type: 'terminal' as const, publicKey: producer.publicKey,
+      signature: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      backendId: request.command.backendId, userId: request.command.userId, targetDeviceId: request.command.targetDeviceId,
+      accountId: request.command.accountId, commandId: request.command.commandId, idempotencyKey: request.command.idempotencyKey,
+      creditId: request.command.creditId, executedAt: now.toISOString(),
+      result: { ...request.command, version: 1 as const, state: 'failed' as const, code: 'r3_authorization_required' as const, executedAt: now.toISOString(), completedAt: now.toISOString() },
+    };
+    let inventoryCallback: ((value: ResetVerifiedInventory) => void) | undefined;
+    const gated = service({
+      subscribeInventory: (_uid, _producer, onValue) => { inventoryCallback = onValue; onValue(ready); return () => undefined; },
+      watchResult: (_uid, _producer, req, onValue) => { onValue({ status: 'terminal', request: req, receipt: terminalReceipt }); return () => undefined; },
+    });
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={gated} />);
+    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張重置券' }));
+    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張重置券' }));
+    expect(await screen.findByText('安全連線已驗證，尚未開放實際使用重置券')).toBeInTheDocument();
+    inventoryCallback?.({ status: 'unverified' });
+    await waitFor(() => expect(screen.queryByText('無法驗證 Mac 回報')).not.toBeInTheDocument());
   });
 
 });

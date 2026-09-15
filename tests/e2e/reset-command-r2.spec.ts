@@ -95,8 +95,8 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
     await page.goto('/?fixture=reset-unverified');
     await page.getByRole('button', { name: '重置額度', exact: true }).last().click();
 
-    // Key mismatch or forged receipt shows '無法驗證 Mac 回報'
-    await expect(page.getByText('無法驗證 Mac 回報')).toBeVisible();
+    // Key mismatch uses plain-language recovery guidance without exposing keys or IDs.
+    await expect(page.getByText('這台 Mac 需要重新建立安全連線')).toBeVisible();
 
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
     expect(noOverflow).toBe(true);
@@ -114,12 +114,12 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
     // Switch to second Mac
     await deviceSelect.selectOption('mac-secondary');
     await expect(deviceSelect).toHaveValue('mac-secondary');
-    await expect(page.getByText('Mac：mac-secondary')).toBeVisible();
+    await expect(page.getByText('Mac 2 已連線')).toBeVisible();
 
     // Switch back to primary
     await deviceSelect.selectOption('mac-primary');
     await expect(deviceSelect).toHaveValue('mac-primary');
-    await expect(page.getByText('Mac：mac-primary')).toBeVisible();
+    await expect(page.getByText('Mac 1 已連線')).toBeVisible();
 
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
     expect(noOverflow).toBe(true);
