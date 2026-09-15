@@ -85,7 +85,7 @@ function AuthenticatedRoutes({ user, usage, history, preferences, location, serv
       item.providerId === location.providerId && (!location.deviceId || item.deviceId === location.deviceId)
     );
     if (!snapshot) {
-      return shell(<section className="state-card"><strong>找不到這個資料來源</strong><p>回到首頁重新選擇 Provider。</p></section>);
+      return shell(<section className="state-card"><strong>找不到這個資料來源</strong><p>回到首頁重新選擇資料來源。</p></section>);
     }
 
     const historyItem = historyItems.find((item) =>

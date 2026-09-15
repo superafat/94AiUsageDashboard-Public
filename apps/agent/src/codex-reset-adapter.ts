@@ -212,7 +212,7 @@ function parseProviderRateLimitsResult(
     throw new Error('protocol_error');
   }
   const obj = res as Record<string, unknown>;
-  const allowedResKeys = new Set(['accountId', 'rateLimitResetCredits', 'rateLimits']);
+  const allowedResKeys = new Set(['accountId', 'ordinaryUsageAllowed', 'rateLimitResetCredits', 'rateLimitUpsell', 'rateLimits', 'rateLimitsByLimitId']);
   if (Object.keys(obj).some((k) => !allowedResKeys.has(k))) {
     throw new Error('protocol_error');
   }
@@ -271,7 +271,7 @@ function parseProviderRateLimitsResult(
         throw new Error('protocol_error');
       }
       const item = itemRaw as Record<string, unknown>;
-      const allowedItemKeys = new Set(['id', 'status', 'resetType', 'grantedAt', 'expiresAt']);
+      const allowedItemKeys = new Set(['id', 'status', 'resetType', 'grantedAt', 'expiresAt', 'title', 'description']);
       if (Object.keys(item).some((k) => !allowedItemKeys.has(k))) {
         throw new Error('protocol_error');
       }
@@ -288,14 +288,14 @@ function parseProviderRateLimitsResult(
       }
       seenIds.add(item.id);
 
-      if (item.status !== 'available' && item.status !== 'redeeming' && item.status !== 'redeemed') {
+      if (item.status !== 'available' && item.status !== 'redeeming' && item.status !== 'redeemed' && item.status !== 'unknown') {
         throw new Error('protocol_error');
       }
       if (item.status === 'available') {
         availableDetailCount++;
       }
 
-      if (item.resetType !== 'codexRateLimits') {
+      if (item.resetType !== 'codexRateLimits' && item.resetType !== 'unknown') {
         throw new Error('protocol_error');
       }
 
@@ -496,13 +496,38 @@ function createSession(adapter: CodexResetAdapter): AdapterSession {
       return;
     }
 
-    if (parsed.jsonrpc !== '2.0') {
-      latchFailure(new Error('protocol_error'));
+    const isRemoteControlStatusNotification =
+      parsed.method === 'remoteControl/status/changed' && parsed.id === undefined && parsed.jsonrpc === undefined;
+    if (isRemoteControlStatusNotification) {
+      const allowedRemoteStatusKeys = new Set(['method', 'params', 'emittedAtMs']);
+      if (Object.keys(parsed).some((k) => !allowedRemoteStatusKeys.has(k))) {
+        latchFailure(new Error('protocol_error'));
+        return;
+      }
+      if (
+        parsed.emittedAtMs !== undefined &&
+        (typeof parsed.emittedAtMs !== 'number' || !Number.isSafeInteger(parsed.emittedAtMs) || parsed.emittedAtMs < 0)
+      ) {
+        latchFailure(new Error('protocol_error'));
+        return;
+      }
+      if (
+        parsed.params !== undefined &&
+        (!parsed.params || typeof parsed.params !== 'object' || Array.isArray(parsed.params) ||
+          ![Object.prototype, null].includes(Object.getPrototypeOf(parsed.params)))
+      ) {
+        latchFailure(new Error('protocol_error'));
+        return;
+      }
       return;
     }
 
-    // Check if message is a response
+    // Check if message is a response. Codex 0.154 may omit jsonrpc on otherwise strict envelopes.
     if (parsed.id !== undefined) {
+      if (parsed.jsonrpc !== undefined && parsed.jsonrpc !== '2.0') {
+        latchFailure(new Error('protocol_error'));
+        return;
+      }
       const allowedResponseKeys = new Set(['jsonrpc', 'id', 'result', 'error']);
       if (Object.keys(parsed).some((k) => !allowedResponseKeys.has(k))) {
         latchFailure(new Error('protocol_error'));
@@ -551,7 +576,12 @@ function createSession(adapter: CodexResetAdapter): AdapterSession {
       return;
     }
 
-    // Notification (id is undefined)
+    // Notification (id is undefined). Only the explicit remoteControl/status/changed
+    // exception above may omit jsonrpc; all other notifications remain strict JSON-RPC 2.0.
+    if (parsed.jsonrpc !== '2.0') {
+      latchFailure(new Error('protocol_error'));
+      return;
+    }
     const allowedNotificationKeys = new Set(['jsonrpc', 'method', 'params']);
     if (Object.keys(parsed).some((k) => !allowedNotificationKeys.has(k))) {
       latchFailure(new Error('protocol_error'));

@@ -62,7 +62,7 @@ export function UsageStatsScreen({ items, now }: { items: UsageHistorySnapshot[]
     </div>
     {trend.length ? <UsageTrendChart daily={trend} /> : <div className="state-card">尚無歷史資料</div>}
 
-    <section className="history-breakdown"><div className="section-title-row"><div><p className="screen-eyebrow">Providers</p><h2>來源分布</h2></div></div>
+    <section className="history-breakdown"><div className="section-title-row"><div><p className="screen-eyebrow">資料來源</p><h2>來源分布</h2></div></div>
       <div className="history-provider-grid">{relevant.length ? relevant.map(({ item, summary }) => <article className="history-provider-card" key={`${item.deviceId}:${item.providerId}`}><div><span className="provider-dot" data-family={providerFamily(item.providerId)} /><strong>{providerLabel(item.providerId)}</strong></div><strong>{formatTokens(summary.tokens)}</strong><span>{summary.estimatedCostUsd === undefined ? '費用資料累積中' : `約 US$${summary.estimatedCostUsd.toFixed(2)}`}</span></article>) : <p className="empty-inline">尚無歷史資料</p>}</div>
     </section>
   </section>;

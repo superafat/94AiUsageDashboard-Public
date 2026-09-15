@@ -17,10 +17,10 @@ describe('formatPercent', () => {
 describe('formatCountdown', () => {
   it('formats future duration, sub-minute countdowns, and reset-awaiting-refresh', () => {
     const now = new Date('2026-09-05T00:00:00.000Z');
-    expect(formatCountdown('2026-09-06T03:02:00.000Z', now)).toBe('1d 3h 2m');
+    expect(formatCountdown('2026-09-06T03:02:00.000Z', now)).toBe('1天 3小時 2分');
     // Sub-minute future: 30 seconds in the future must render 30s, not 已重置
-    expect(formatCountdown('2026-09-05T00:00:30.000Z', now)).toBe('30s');
-    expect(formatCountdown('2026-09-05T00:00:45.000Z', now)).toBe('45s');
+    expect(formatCountdown('2026-09-05T00:00:30.000Z', now)).toBe('30秒');
+    expect(formatCountdown('2026-09-05T00:00:45.000Z', now)).toBe('45秒');
     // Elapsed time represents reset-awaiting-refresh
     expect(formatCountdown('2026-09-04T23:00:00.000Z', now)).toBe('待刷新');
     expect(formatCountdown('2026-09-04T23:00:00.000Z', now, { elapsedLabel: '已過期' })).toBe('已過期');

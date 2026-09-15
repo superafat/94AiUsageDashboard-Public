@@ -112,7 +112,8 @@ describe('App', () => {
     expect(screen.getByText('每週額度')).toBeInTheDocument();
     expect(screen.getByText('51%')).toBeInTheDocument();
     fake.usage([{ ...base, stale: true }]);
-    expect(screen.getByText(/資料可能已過期/)).toBeInTheDocument();
+    expect(screen.getByText(/部分來源資料較舊/)).toBeInTheDocument();
+    expect(screen.queryByText(/Mac 最近沒有完成同步/)).not.toBeInTheDocument();
     fake.usage([]);
     expect(screen.getByText(/目前沒有可顯示的額度資料/)).toBeInTheDocument();
     fake.usage([{ ...base, errorSummary: 'refresh failed' }]);
@@ -142,7 +143,7 @@ describe('App', () => {
       fetchedAt: new Date(Date.now() - 330_000).toISOString(),
       expiresAt: new Date(Date.now() - 30_000).toISOString(), // Expired 30s ago!
     }]);
-    expect(screen.getByText(/資料可能已過期/)).toBeInTheDocument();
+    expect(screen.getByText(/部分來源資料較舊/)).toBeInTheDocument();
   });
 
   it('marks data stale when the Mac has not completed a sync within the heartbeat window', () => {
@@ -155,7 +156,7 @@ describe('App', () => {
       syncedAt: '2000-01-01T00:00:00.000Z',
       expiresAt: '2099-01-01T00:00:00.000Z',
     }]);
-    expect(screen.getByText(/資料可能已過期/)).toBeInTheDocument();
+    expect(screen.getByText(/部分來源資料較舊/)).toBeInTheDocument();
   });
 
   it('shows read errors without creating mutation controls', () => {

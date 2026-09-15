@@ -13,7 +13,7 @@ export function ResetCreditList({
     return <p className="empty-inline">目前沒有可用的手動重置額度</p>;
   }
   return (
-    <div className="reset-list" aria-label="手動重置額度，只讀">
+    <div className="reset-list" aria-label="手動重置額度，僅供查看">
       {resolved.items.map((item) => (
         <div className="reset-row" key={`${item.index}-${item.expiry ?? 'unknown'}`}>
           <strong>#{String(item.index + 1).padStart(3, '0')}</strong>

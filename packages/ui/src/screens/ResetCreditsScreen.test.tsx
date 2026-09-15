@@ -48,13 +48,13 @@ describe('ResetCreditsScreen R2 command lane', () => {
   it('shows explicit second confirmation with device/account/expiry and dispatches exactly once', async () => {
     const dispatch = vi.fn(async () => request);
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={service({ dispatch })} />);
-    expect(await screen.findByRole('button', { name: '使用 1 張 Reset 券' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: '使用 1 張 Reset 券' }));
+    expect(await screen.findByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '使用 1 張重置券' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('mac-1');
     expect(screen.getByRole('dialog')).toHaveTextContent('acct-1');
     expect(screen.getByRole('dialog')).toHaveTextContent('2026-09-20T00:00:00.000Z');
-    expect(screen.getByRole('dialog')).toHaveTextContent('只會使用 1 張 Reset Credit');
-    const confirm = screen.getByRole('button', { name: '確認使用 1 張 Reset 券' });
+    expect(screen.getByRole('dialog')).toHaveTextContent('只會使用 1 張重置券');
+    const confirm = screen.getByRole('button', { name: '確認使用 1 張重置券' });
     fireEvent.click(confirm); fireEvent.click(confirm);
     await waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('等待 Mac')).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('ResetCreditsScreen R2 command lane', () => {
     const mismatch = service({ subscribeInventory: (_u, _p, onValue) => { onValue({ status: 'key_mismatch' }); return () => undefined; } });
     rerender(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={mismatch} />);
     expect(await screen.findByText('無法驗證 Mac 回報')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '使用 1 張 Reset 券' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '使用 1 張重置券' })).not.toBeInTheDocument();
   });
 
   it('isolates progress and result watchers per Mac when switching devices', async () => {
@@ -105,17 +105,17 @@ describe('ResetCreditsScreen R2 command lane', () => {
     });
 
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={multi} />);
-    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張 Reset 券' }));
-    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張 Reset 券' }));
+    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張重置券' }));
+    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張重置券' }));
     expect(await screen.findByText('等待 Mac')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: '選擇 Mac' }), { target: { value: 'mac-2' } });
     await waitFor(() => expect(screen.queryByText('等待 Mac')).not.toBeInTheDocument());
     expect(stop1).not.toHaveBeenCalled();
-    expect(await screen.findByRole('button', { name: '使用 1 張 Reset 券' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '使用 1 張 Reset 券' }));
-    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張 Reset 券' }));
+    fireEvent.click(screen.getByRole('button', { name: '使用 1 張重置券' }));
+    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張重置券' }));
     expect(await screen.findByText('等待 Mac')).toBeInTheDocument();
     expect(stop1).not.toHaveBeenCalled();
 
@@ -138,11 +138,11 @@ describe('ResetCreditsScreen R2 command lane', () => {
       },
     });
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={multi} />);
-    expect(await screen.findByRole('button', { name: '使用 1 張 Reset 券' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
     fireEvent.change(screen.getByRole('combobox', { name: '選擇 Mac' }), { target: { value: 'mac-2' } });
-    expect(screen.queryByRole('button', { name: '使用 1 張 Reset 券' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '使用 1 張重置券' })).not.toBeInTheDocument();
     expect(screen.queryByText('acct-1')).not.toBeInTheDocument();
-    expect(screen.getByText('等待 Mac 更新可用 Reset 券')).toBeInTheDocument();
+    expect(screen.getByText('等待 Mac 更新可用重置券')).toBeInTheDocument();
   });
 
   it('invalidates an open confirmation when the signed inventory changes before confirm', async () => {
@@ -157,7 +157,7 @@ describe('ResetCreditsScreen R2 command lane', () => {
       dispatch,
     });
     render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={drifting} />);
-    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張 Reset 券' }));
+    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張重置券' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('2026-09-20T00:00:00.000Z');
 
     const changedEnvelope: ResetInventoryEnvelope = {
@@ -175,6 +175,72 @@ describe('ResetCreditsScreen R2 command lane', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(dispatch).not.toHaveBeenCalled();
     expect(screen.getByText(/資料已更新|重新確認/)).toBeInTheDocument();
+  });
+
+
+  it('explains the R3 safety gate in plain Traditional Chinese without implying a failed voucher charge', async () => {
+    const terminalReceipt = {
+      version: 1 as const,
+      type: 'terminal' as const,
+      publicKey: producer.publicKey,
+      signature: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      backendId: request.command.backendId,
+      userId: request.command.userId,
+      targetDeviceId: request.command.targetDeviceId,
+      accountId: request.command.accountId,
+      commandId: request.command.commandId,
+      idempotencyKey: request.command.idempotencyKey,
+      creditId: request.command.creditId,
+      executedAt: now.toISOString(),
+      result: {
+        version: 1 as const,
+        commandId: request.command.commandId,
+        idempotencyKey: request.command.idempotencyKey,
+        creditId: request.command.creditId,
+        accountId: request.command.accountId,
+        targetDeviceId: request.command.targetDeviceId,
+        userId: request.command.userId,
+        backendId: request.command.backendId,
+        state: 'failed' as const,
+        code: 'r3_authorization_required' as const,
+        executedAt: now.toISOString(),
+        completedAt: now.toISOString(),
+      },
+    };
+    const gated = service({
+      watchResult: (_uid, _producer, req, onValue) => {
+        onValue({ status: 'terminal', request: req, receipt: terminalReceipt });
+        return () => undefined;
+      },
+    });
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={gated} />);
+    fireEvent.click(await screen.findByRole('button', { name: '使用 1 張重置券' }));
+    fireEvent.click(screen.getByRole('button', { name: '確認使用 1 張重置券' }));
+    expect(await screen.findByText('安全連線已驗證，尚未開放實際使用重置券')).toBeInTheDocument();
+    expect(screen.queryByText('重置券未使用成功')).not.toBeInTheDocument();
+  });
+
+  it('uses Traditional Chinese plain-language labels instead of mixed English control headings', async () => {
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={service()} />);
+    expect(await screen.findByText('可用重置券')).toBeInTheDocument();
+    expect(screen.getByText('已配對的 Mac')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '使用 1 張重置券' })).toBeEnabled();
+    expect(screen.queryByText(/READ-ONLY|Read-only|PAIRED MAC|Paired Mac|Reset Credits?/i)).not.toBeInTheDocument();
+  });
+
+  it('moves off a stale mismatched pairing and selects the newest producer for explicit re-pairing', async () => {
+    const oldProducer: PushProducerRecord = { ...producer, deviceId: 'mac-old', publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', updatedAt: '2026-09-12T00:00:00.000Z' };
+    const newestProducer: PushProducerRecord = { ...producer, deviceId: 'mac-new', publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB', updatedAt: '2026-09-13T00:00:00.000Z' };
+    const stalePin: ResetPairingPin = { ...pin, deviceId: 'mac-old', publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC' };
+    const rotating = service({
+      subscribeProducers: (_uid, onValue) => { onValue([oldProducer, newestProducer]); return () => undefined; },
+      getPairing: (_uid, deviceId) => deviceId === 'mac-old' ? stalePin : null,
+      subscribeInventory: (_uid, _producer, onValue) => { onValue({ status: 'unpaired' }); return () => undefined; },
+    });
+    render(<ResetCreditsScreen items={[usage]} now={now} userId="alice" resetCommands={rotating} />);
+    await screen.findByRole('button', { name: '配對這台 Mac' });
+    expect(screen.getByRole('combobox', { name: '選擇 Mac' })).toHaveValue('mac-new');
+    expect(screen.getByRole('button', { name: '配對這台 Mac' })).toBeEnabled();
   });
 
 });

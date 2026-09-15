@@ -113,8 +113,8 @@ const STATUS_CONTENT: Record<PushDisplayStatus, { pill: string; title: string; d
   },
   'missing-Mac': {
     pill: '無在線 Mac',
-    title: '找不到在線的 Mac Companion',
-    desc: '需有最近 10 分鐘內回報的 Mac OpenUsage 執行推播發送。請先開啟並連線 Mac Companion。',
+    title: '找不到在線的 Mac 同步程式',
+    desc: '需有最近 10 分鐘內回報的 Mac OpenUsage 執行推播發送。請先開啟並連線 Mac 同步程式。',
   },
   waiting: {
     pill: '處理中…',
@@ -129,7 +129,7 @@ const STATUS_CONTENT: Record<PushDisplayStatus, { pill: string; title: string; d
   enabled: {
     pill: '已啟用',
     title: '推播通知已啟用',
-    desc: '此裝置已成功註冊推播。當 Mac Companion 觀察到額度耗用或重置時將發送通知。',
+    desc: '此裝置已成功註冊推播。當 Mac 同步程式 觀察到額度耗用或重置時將發送通知。',
   },
   default: {
     pill: '未啟用',
@@ -161,7 +161,7 @@ export function SettingsScreen({
   onDisablePush,
   onTestPush,
 }: SettingsScreenProps) {
-  const mode = backendProfile.mode === 'self-hosted' ? 'Self-hosted' : '官方 App';
+  const mode = backendProfile.mode === 'self-hosted' ? '自架模式' : '官方服務';
 
   const [selectedPlatform, setSelectedPlatform] = useState<OnboardingPlatform>(getInitialPlatform);
 
@@ -185,7 +185,7 @@ export function SettingsScreen({
     <section className="product-screen settings-screen">
       <header className="screen-heading">
         <div>
-          <p className="screen-eyebrow">Settings</p>
+          <p className="screen-eyebrow">設定</p>
           <h1>設定</h1>
           <p>管理帳號、資料來源與推播通知。</p>
         </div>
@@ -203,7 +203,7 @@ export function SettingsScreen({
       <section className="settings-section settings-notifications">
         <div className="section-title-row">
           <div>
-            <p className="screen-eyebrow">Push Notifications</p>
+            <p className="screen-eyebrow">推播通知</p>
             <h2>推播通知</h2>
             <p className="settings-subtext">
               透過 Web Push 接收額度重置與消耗提醒。由 Mac 上的同步程式約每 5 分鐘檢查並發送；Mac 關機或離線時會延後。
@@ -286,8 +286,8 @@ export function SettingsScreen({
                   <dd>請確認是否已透過「加到主畫面」開啟 PWA，或檢查目前瀏覽器是否支援 Web Push。</dd>
                 </div>
                 <div className="troubleshooting-item">
-                  <dt>Mac Companion 離線</dt>
-                  <dd>需有最近 10 分鐘內回報的 Mac OpenUsage 執行推播發送。請先開啟並連線 Mac Companion。</dd>
+                  <dt>Mac 同步程式 離線</dt>
+                  <dd>需有最近 10 分鐘內回報的 Mac OpenUsage 執行推播發送。請先開啟並連線 Mac 同步程式。</dd>
                 </div>
                 <div className="troubleshooting-item">
                   <dt>測試推播成功，但尚未收到自動通知</dt>
@@ -355,7 +355,7 @@ export function SettingsScreen({
       <section className="settings-section settings-providers">
         <div className="section-title-row">
           <div>
-            <p className="screen-eyebrow">Data Sources</p>
+            <p className="screen-eyebrow">資料來源</p>
             <h2>資料來源偏好</h2>
             <p className="settings-subtext">
               選擇要在儀表板與統計中顯示的 AI 服務來源。關閉來源不會登出或變更 Mac 本機 OpenUsage 設定。
@@ -490,7 +490,7 @@ export function SettingsScreen({
       <div className="settings-list">
         <button type="button" onClick={() => onNavigate({ route: 'getting-started' })}>
           <span>
-            <strong>Mac Companion 與開始使用</strong>
+            <strong>Mac 同步程式 與開始使用</strong>
             <small>重新查看安裝與連接步驟</small>
           </span>
           <b>›</b>
@@ -512,8 +512,8 @@ export function SettingsScreen({
       </div>
 
       <section className="settings-privacy">
-        <strong>Provider 憑證不離開 Mac</strong>
-        <p>App 不需要你的任何 Provider Token 或 API Key。Self-hosted 資料依自己的 Firebase 帳號隔離。</p>
+        <strong>服務憑證不離開 Mac</strong>
+        <p>App 不需要你的任何 服務登入憑證或 API 金鑰。自架模式的資料會依自己的 Firebase 帳號隔離。</p>
       </section>
 
       <button className="signout-button" type="button" onClick={() => void onSignOut()}>

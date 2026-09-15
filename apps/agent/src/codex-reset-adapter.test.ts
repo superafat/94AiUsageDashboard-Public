@@ -219,6 +219,76 @@ describe('CodexResetAdapter', () => {
     expect(result.credits?.[0]?.resetType).toBe('codexRateLimits');
   });
 
+  it('accepts Codex 0.154 rate-limit response fields while sanitizing reset-credit details', async () => {
+    const transport = new FakeTransport();
+    const adapter = new CodexResetAdapter({ transport });
+    const promise = adapter.readRateLimits();
+
+    await new Promise((r) => setTimeout(r, 10));
+    const initReq = JSON.parse(transport.sentMessages[0]!);
+    transport.emitMessage({ id: initReq.id, result: { capabilities: {} } });
+    await new Promise((r) => setTimeout(r, 10));
+    const readReq = JSON.parse(transport.sentMessages[2]!);
+
+    transport.emitMessage({
+      id: readReq.id,
+      result: {
+        accountId: 'acc_0154',
+        ordinaryUsageAllowed: true,
+        rateLimitUpsell: { banner: 'ignored backend-owned display data' },
+        rateLimitsByLimitId: { codex: {} },
+        rateLimits: {},
+        rateLimitResetCredits: {
+          availableCount: 1,
+          credits: [
+            { id: 'credit_available', status: 'available', resetType: 'codexRateLimits', grantedAt: 1789000000, expiresAt: 1790000000, title: 'Reset', description: 'Display only' },
+            { id: 'credit_unknown', status: 'unknown', resetType: 'unknown', grantedAt: 1789000001, expiresAt: null, title: null, description: null },
+          ],
+        },
+      },
+    });
+
+    await expect(promise).resolves.toEqual({
+      accountId: 'acc_0154',
+      availableCount: 1,
+      credits: [
+        { creditId: 'credit_available', status: 'available', resetType: 'codexRateLimits', expiresAt: new Date(1790000000 * 1000).toISOString() },
+        { creditId: 'credit_unknown', status: 'unknown', resetType: 'unknown', expiresAt: null },
+      ],
+    });
+  });
+
+  it('ignores the Codex 0.154 remoteControl status notification envelope without weakening other messages', async () => {
+    const transport = new FakeTransport();
+    const adapter = new CodexResetAdapter({ transport });
+    const promise = adapter.readRateLimits();
+
+    await new Promise((r) => setTimeout(r, 10));
+    const initReq = JSON.parse(transport.sentMessages[0]!);
+    transport.emitMessage({ id: initReq.id, result: { capabilities: {} } });
+    await new Promise((r) => setTimeout(r, 10));
+    const readReq = JSON.parse(transport.sentMessages[2]!);
+
+    transport.emitMessage({
+      method: 'remoteControl/status/changed',
+      params: { status: 'ignored' },
+      emittedAtMs: 1789400000000,
+    });
+    transport.emitMessage({
+      id: readReq.id,
+      result: {
+        accountId: 'acc_0154',
+        ordinaryUsageAllowed: true,
+        rateLimitUpsell: null,
+        rateLimitsByLimitId: {},
+        rateLimits: {},
+        rateLimitResetCredits: { availableCount: 0, credits: [] },
+      },
+    });
+
+    await expect(promise).resolves.toMatchObject({ accountId: 'acc_0154', availableCount: 0, credits: [] });
+  });
+
   it('enforces exact method allowlist and rejects unapproved methods', async () => {
     const transport = new FakeTransport();
     const adapter = new CodexResetAdapter({ transport });
@@ -502,6 +572,17 @@ describe('CodexResetAdapter', () => {
     } finally {
       cleanup();
     }
+  });
+
+  it('rejects arbitrary notifications that omit jsonrpc outside the explicit Codex 0.154 remote-control exception', async () => {
+    const transport = new FakeTransport();
+    const adapter = new CodexResetAdapter({ transport });
+    const readPromise = adapter.readRateLimits();
+    await new Promise((r) => setTimeout(r, 10));
+
+    transport.emitMessage({ method: 'window/logMessage', params: { type: 3, message: 'note' } });
+
+    await expect(readPromise).rejects.toThrow('protocol_error');
   });
 
   it('bounds line size and ignores harmless notifications without reflecting content', async () => {

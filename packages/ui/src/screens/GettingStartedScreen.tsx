@@ -20,12 +20,12 @@ export function GettingStartedScreen({ signedIn, onSignIn, onNavigate }: { signe
     try { await onSignIn(); } catch (error) { setMessage(signInMessage(error)); } finally { setPending(false); }
   };
   return <section className="product-screen setup-screen">
-    <header className="screen-heading"><div><p className="screen-eyebrow">3 steps</p><h1>開始使用</h1><p>一般使用者只需要登入、安裝 Mac Companion、連接自己的 AI 工具。</p></div></header>
-    <div className="setup-steps"><article data-ready={signedIn}><b>1</b><div><strong>登入 App</strong><p>使用自己的帳號識別你的額度資料。</p></div>{signedIn ? <span>已完成</span> : <button type="button" disabled={pending} onClick={() => void signIn()}>{pending ? '登入中…' : '使用 Google 登入'}</button>}</article>
-      <article><b>2</b><div><strong>安裝 Mac Companion</strong><p>Mac 背景程式會安全取得額度與使用統計；未來 App 會提供配對引導。</p></div><span>Mac</span></article>
+    <header className="screen-heading"><div><p className="screen-eyebrow">三個步驟</p><h1>開始使用</h1><p>一般使用者只需要登入、安裝 Mac 同步程式、連接自己的 AI 工具。</p></div></header>
+    <div className="setup-steps"><article data-ready={signedIn}><b>1</b><div><strong>登入帳號</strong><p>使用自己的帳號識別你的額度資料。</p></div>{signedIn ? <span>已完成</span> : <button type="button" disabled={pending} onClick={() => void signIn()}>{pending ? '登入中…' : '使用 Google 登入'}</button>}</article>
+      <article><b>2</b><div><strong>安裝 Mac 同步程式</strong><p>Mac 背景程式會安全取得額度與使用統計；之後會自動同步到你的手機。</p></div><span>Mac</span></article>
       <article><b>3</b><div><strong>連接你的 AI 工具</strong><p>在 Codex、Antigravity 或 Claude Code 正常登入後，資料會自動出現。</p></div><span>自動偵測</span></article></div>
     {message ? <p className="home-alert" role="alert">{message}</p> : null}
-    <div className="setup-note"><strong>你不需要提供 AI Token</strong><p>Provider 憑證留在 Mac；目前 Self-hosted 進階模式仍可使用自己的 Firebase。</p></div>
+    <div className="setup-note"><strong>你不需要提供 AI 登入憑證</strong><p>服務憑證留在 Mac；進階使用者仍可使用自己的 Firebase 自架模式。</p></div>
     <button className="secondary-button" type="button" onClick={() => onNavigate({ route: 'help' })}>查看完整使用說明</button>
   </section>;
 }

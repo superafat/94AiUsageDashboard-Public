@@ -47,12 +47,12 @@ describe('QuotaCard', () => {
           kind: 'consumption',
           unit: 'percent',
           remaining: 75,
-          resetsAt: '2026-09-08T12:00:30.000Z', // 30s in the future
+          resetsAt: '2026-09-08T12:00:30.000Z', // 30秒 in the future
         }}
         now={now}
       />
     );
-    expect(screen.getByText(/30s/)).toBeInTheDocument();
+    expect(screen.getByText(/30秒/)).toBeInTheDocument();
     expect(screen.queryByText(/已重置/)).not.toBeInTheDocument();
 
     // Elapsed reset time

@@ -28,7 +28,7 @@ export function ProviderDetailScreen({
     <header className="provider-detail-header">
       <span className="provider-icon provider-icon--large" data-family={providerFamily(snapshot.providerId)} aria-hidden="true"><span /></span>
       <div>
-        <p className="screen-eyebrow">Provider detail</p>
+        <p className="screen-eyebrow">來源詳情</p>
         <h1>{name}</h1>
         <div className="provider-detail-meta">
           {snapshot.plan ? <span>{snapshot.plan}</span> : null}
@@ -40,7 +40,7 @@ export function ProviderDetailScreen({
     {historyError ? <div className="home-alert home-alert--danger" role="alert"><strong>歷史記錄讀取失敗</strong><span>{historyError}</span></div> : null}
     {historyStale ? <div className="home-alert" role="alert"><strong>歷史資料可能已過期</strong><span>最近沒有完成歷史資料同步。</span></div> : null}
 
-    <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">Quota</p><h2>完整額度</h2></div></div><div className="quota-grid">{entries.length ? entries.map((entry) => <QuotaCard key={entry.key} label={entry.label} providerLabel={name} resource={entry.resource} now={now} />) : <p className="empty-inline">來源已連接，但目前沒有可顯示的額度資料</p>}</div></section>
-    {reset ? <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">Read-only</p><h2>手動重置額度</h2></div></div><ResetCreditList resource={reset} now={now} /><div className="info-note"><strong>目前僅供查看</strong><span>使用功能會在獨立安全版本加入二次確認與防重複消耗機制後開放。</span></div></section> : null}
+    <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">額度明細</p><h2>完整額度</h2></div></div><div className="quota-grid">{entries.length ? entries.map((entry) => <QuotaCard key={entry.key} label={entry.label} providerLabel={name} resource={entry.resource} now={now} />) : <p className="empty-inline">來源已連接，但目前沒有可顯示的額度資料</p>}</div></section>
+    {reset ? <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">僅供查看</p><h2>手動重置額度</h2></div></div><ResetCreditList resource={reset} now={now} /><div className="info-note"><strong>目前僅供查看</strong><span>重置券的安全操作請到「重置額度」頁面，必須先完成 Mac 配對與二次確認。</span></div></section> : null}
   </section>;
 }

@@ -22,7 +22,7 @@ describe('public-ready support screens', () => {
     const signIn = vi.fn(async () => undefined);
     render(<GettingStartedScreen signedIn={false} onSignIn={signIn} onNavigate={() => undefined} />);
     expect(screen.getByRole('heading', { name: '開始使用' })).toBeInTheDocument();
-    expect(screen.getAllByText(/安裝 Mac Companion/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/安裝 Mac 同步程式/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(/連接你的 AI 工具/).length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole('button', { name: '使用 Google 登入' }));
     expect(signIn).toHaveBeenCalledTimes(1);
@@ -31,10 +31,10 @@ describe('public-ready support screens', () => {
   it('explains privacy and settings without exposing provider credentials', () => {
     render(<HelpScreen onNavigate={() => undefined} />);
     expect(screen.getByRole('heading', { name: '使用說明與隱私' })).toBeInTheDocument();
-    expect(screen.getByText(/Provider Token 不會上傳/)).toBeInTheDocument();
+    expect(screen.getByText(/服務登入憑證不會上傳/)).toBeInTheDocument();
     const profile: BackendProfile = { mode: 'self-hosted', label: 'My Firebase' };
     render(<SettingsScreen userName="Alice" backendProfile={profile} onNavigate={() => undefined} onSignOut={async () => undefined} />);
-    expect(screen.getByText('Self-hosted')).toBeInTheDocument();
+    expect(screen.getByText('自架模式')).toBeInTheDocument();
     expect(screen.queryByText(/access[_-]?token|refresh[_-]?token|api[_-]?key/i)).not.toBeInTheDocument();
   });
 });

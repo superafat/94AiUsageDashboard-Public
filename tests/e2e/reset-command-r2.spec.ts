@@ -17,20 +17,20 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
     await pairButton.click();
     await expect(pairButton).not.toBeVisible();
 
-    // 2. Actionable inventory: shows '使用 1 張 Reset 券'
-    const useCreditButton = page.getByRole('button', { name: '使用 1 張 Reset 券' });
+    // 2. Actionable inventory: shows '使用 1 張重置券'
+    const useCreditButton = page.getByRole('button', { name: '使用 1 張重置券' });
     await expect(useCreditButton).toBeVisible();
 
     // Click to open second confirmation dialog
     await useCreditButton.click();
 
     // 3. Second confirmation dialog
-    const dialog = page.getByRole('dialog', { name: '確認使用 Reset 券' });
+    const dialog = page.getByRole('dialog', { name: '確認使用重置券' });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('這次只會使用 1 張 Reset Credit。此操作不可逆，不會自動改用其他券。')).toBeVisible();
+    await expect(dialog.getByText('這次只會使用 1 張重置券。此操作不可逆，不會自動改用其他券。')).toBeVisible();
 
     // Confirm execution
-    const confirmButton = dialog.getByRole('button', { name: '確認使用 1 張 Reset 券' });
+    const confirmButton = dialog.getByRole('button', { name: '確認使用 1 張重置券' });
     await expect(confirmButton).toBeVisible();
     await confirmButton.click();
 
@@ -41,7 +41,7 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
     await expect(page.getByText('執行中')).toBeVisible();
 
     // 6. Terminal success state
-    await expect(page.getByText('已確認使用 1 張 Reset 券')).toBeVisible();
+    await expect(page.getByText('已確認使用 1 張重置券')).toBeVisible();
 
     // 7. No horizontal overflow on Pixel 7
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
@@ -57,12 +57,12 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
       await pairButton.click();
     }
 
-    const useCreditButton = page.getByRole('button', { name: '使用 1 張 Reset 券' });
+    const useCreditButton = page.getByRole('button', { name: '使用 1 張重置券' });
     await expect(useCreditButton).toBeVisible();
     await useCreditButton.click();
 
-    const dialog = page.getByRole('dialog', { name: '確認使用 Reset 券' });
-    await dialog.getByRole('button', { name: '確認使用 1 張 Reset 券' }).click();
+    const dialog = page.getByRole('dialog', { name: '確認使用重置券' });
+    await dialog.getByRole('button', { name: '確認使用 1 張重置券' }).click();
 
     // Terminal outcome for no-effect fixture
     await expect(page.getByText('目前沒有需要重置的額度')).toBeVisible();
@@ -81,15 +81,15 @@ test.describe('Reset Credit R2 Paired Transport E2E (Issue #30)', () => {
       await pairButton.click();
     }
 
-    const useCreditButton = page.getByRole('button', { name: '使用 1 張 Reset 券' });
+    const useCreditButton = page.getByRole('button', { name: '使用 1 張重置券' });
     await expect(useCreditButton).toBeVisible();
     await useCreditButton.click();
 
-    const dialog = page.getByRole('dialog', { name: '確認使用 Reset 券' });
-    await dialog.getByRole('button', { name: '確認使用 1 張 Reset 券' }).click();
+    const dialog = page.getByRole('dialog', { name: '確認使用重置券' });
+    await dialog.getByRole('button', { name: '確認使用 1 張重置券' }).click();
 
     // Displays uncertain warning
-    await expect(page.getByText('結果不確定，請勿再次使用 Reset 券')).toBeVisible();
+    await expect(page.getByText('結果不確定，請勿再次使用重置券')).toBeVisible();
 
     // Unverified / forged outcome
     await page.goto('/?fixture=reset-unverified');

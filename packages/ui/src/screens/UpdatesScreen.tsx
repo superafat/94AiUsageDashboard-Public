@@ -20,7 +20,7 @@ export function UpdatesScreen({ onNavigate, entries = RELEASE_NOTES }: UpdatesSc
 
       <header className="screen-heading">
         <div>
-          <p className="screen-eyebrow">Updates & Announcements</p>
+          <p className="screen-eyebrow">更新與公告</p>
           <h1>更新與公告</h1>
           <p>查看最新版本紀錄、功能公告與改進說明。</p>
         </div>

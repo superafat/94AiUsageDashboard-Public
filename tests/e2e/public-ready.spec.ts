@@ -13,9 +13,9 @@ test('settings exposes Mac setup and privacy help inside the product', async ({ 
   await page.goto('/');
   await page.getByRole('button', { name: '設定', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
-  await expect(page.getByText('Provider 憑證不離開 Mac')).toBeVisible();
+  await expect(page.getByText('服務憑證不離開 Mac')).toBeVisible();
   await page.getByRole('button', { name: /使用說明與隱私/ }).click();
-  await expect(page.getByRole('heading', { name: '使用說明' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '使用說明與隱私' })).toBeVisible();
 });
 
 test('main mobile navigation meets 44px touch targets and keyboard focus works', async ({ page }) => {

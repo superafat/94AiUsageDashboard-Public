@@ -10,20 +10,21 @@ function terminalLabel(progress: ResetCommandProgress | undefined): string | nul
   if (progress.status === 'waiting') return '等待 Mac';
   if (progress.status === 'executing') return '執行中';
   if (progress.status === 'unverified') return '無法驗證 Mac 回報';
-  if (progress.status === 'uncertain') return '結果不確定，請勿再次使用 Reset 券';
+  if (progress.status === 'uncertain') return '結果不確定，請勿再次使用重置券';
   if (progress.status !== 'terminal' || progress.receipt.type !== 'terminal') return null;
   const { result } = progress.receipt;
   if (result.state === 'unknown' || result.code === 'unknown_outcome' || result.code === 'reconcile_required' || result.code === 'timeout') {
-    return '結果不確定，請勿再次使用 Reset 券';
+    return '結果不確定，請勿再次使用重置券';
   }
   switch (result.code) {
-    case 'reset': return '已確認使用 1 張 Reset 券';
+    case 'reset': return '已確認使用 1 張重置券';
     case 'nothingToReset': return '目前沒有需要重置的額度';
-    case 'noCredit': return '目前沒有可用 Reset 券';
-    case 'alreadyRedeemed': return '這張 Reset 券已使用';
-    case 'credit_expired': return 'Reset 券已過期';
-    case 'account_mismatch': return '帳號已變更，未使用 Reset 券';
-    default: return result.state === 'failed' ? 'Reset 券未使用成功' : 'Mac 已回報結果';
+    case 'noCredit': return '目前沒有可用重置券';
+    case 'alreadyRedeemed': return '這張重置券已使用';
+    case 'credit_expired': return '重置券已過期';
+    case 'account_mismatch': return '帳號已變更，未使用重置券';
+    case 'r3_authorization_required': return '安全連線已驗證，尚未開放實際使用重置券';
+    default: return result.state === 'failed' ? '重置券未使用成功' : 'Mac 已回報結果';
   }
 }
 
@@ -73,9 +74,17 @@ export function ResetCreditsScreen({
     return resetCommands.subscribeProducers(userId, (next) => {
       setProducers(next);
       setSelectedDeviceId((current) => {
-        if (current && next.some((p) => p.deviceId === current)) return current;
-        const paired = next.find((p) => resetCommands.getPairing(userId, p.deviceId));
-        return paired?.deviceId ?? next[0]?.deviceId ?? '';
+        const currentProducer = current ? next.find((item) => item.deviceId === current) : undefined;
+        if (currentProducer) {
+          const currentPin = resetCommands.getPairing(userId, currentProducer.deviceId);
+          if (!currentPin || currentPin.publicKey === currentProducer.publicKey) return current;
+        }
+        const newestFirst = [...next].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+        const validPaired = newestFirst.find((item) => {
+          const pin = resetCommands.getPairing(userId, item.deviceId);
+          return pin?.publicKey === item.publicKey;
+        });
+        return validPaired?.deviceId ?? newestFirst[0]?.deviceId ?? '';
       });
     }, () => setCommandError('無法讀取 Mac 配對狀態'));
   }, [resetCommands, userId]);
@@ -109,7 +118,7 @@ export function ResetCreditsScreen({
     if (!confirmation) return;
     if (!sameConfirmationSnapshot(confirmation, activeInventory)) {
       setConfirmation(undefined);
-      setCommandError('Reset 券資料已更新，請重新確認');
+      setCommandError('重置券資料已更新，請重新確認');
     }
   }, [confirmation, activeInventory]);
 
@@ -127,7 +136,7 @@ export function ResetCreditsScreen({
     if (!resetCommands || !userId || !producer || inventory.status !== 'ready' || confirmation?.status !== 'ready' || submitting) return;
     if (!sameConfirmationSnapshot(confirmation, activeInventory)) {
       setConfirmation(undefined);
-      setCommandError('Reset 券資料已更新，請重新確認');
+      setCommandError('重置券資料已更新，請重新確認');
       return;
     }
     setSubmitting(true);
@@ -146,7 +155,7 @@ export function ResetCreditsScreen({
       });
       resultStops.current.set(deviceId, stop);
     } catch {
-      setCommandError('無法送出 Reset 指令，沒有使用任何 Reset 券');
+      setCommandError('無法送出重置指令，沒有使用任何重置券');
     } finally {
       setSubmitting(false);
     }
@@ -158,34 +167,34 @@ export function ResetCreditsScreen({
   const paired = Boolean(resetCommands && userId && producer && resetCommands.getPairing(userId, producer.deviceId));
 
   return <section className="product-screen reset-screen">
-    <header className="screen-heading"><div><p className="screen-eyebrow">{codex ? 'Codex' : 'Reset Credits'}</p><h1>重置額度</h1><p>查看免費 Reset Credits 與到期時間。</p></div></header>
-    <section className="reset-hero"><span className="reset-hero__icon" aria-hidden="true">↻</span><div><span>目前可用</span><strong>{codex ? resolved.availableCount : 0}</strong><small>{codex ? `張 Reset Credit${resolved.expiredCount > 0 ? `（另有 ${resolved.expiredCount} 張已過期）` : ''}` : '尚無已啟用的來源'}</small></div></section>
-    <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">Read-only</p><h2>可用額度</h2></div></div><ResetCreditList resource={codex ? resource : undefined} now={now} /></section>
+    <header className="screen-heading"><div><p className="screen-eyebrow">{codex ? 'Codex' : '重置券'}</p><h1>重置額度</h1><p>查看免費重置券與到期時間。</p></div></header>
+    <section className="reset-hero"><span className="reset-hero__icon" aria-hidden="true">↻</span><div><span>目前可用</span><strong>{codex ? resolved.availableCount : 0}</strong><small>{codex ? `張重置券${resolved.expiredCount > 0 ? `（另有 ${resolved.expiredCount} 張已過期）` : ''}` : '尚無已啟用的來源'}</small></div></section>
+    <section className="section"><div className="section-title-row"><div><p className="screen-eyebrow">可用重置券</p><h2>可用額度</h2></div></div><ResetCreditList resource={codex ? resource : undefined} now={now} /></section>
 
-    {hasCommandLane ? <section className="section reset-command-panel" aria-label="Reset 安全操作">
-      <div className="section-title-row"><div><p className="screen-eyebrow">Paired Mac</p><h2>安全使用 Reset 券</h2></div></div>
+    {hasCommandLane ? <section className="section reset-command-panel" aria-label="重置券安全操作">
+      <div className="section-title-row"><div><p className="screen-eyebrow">已配對的 Mac</p><h2>安全使用重置券</h2></div></div>
       {producers.length > 1 ? <label className="reset-device-select">選擇 Mac<select aria-label="選擇 Mac" value={selectedDeviceId} onChange={(event) => { setSelectedDeviceId(event.target.value); setInventory({ status: 'unavailable' }); setConfirmation(undefined); setCommandError(undefined); }}>{producers.map((item) => <option key={item.deviceId} value={item.deviceId}>{item.deviceId}</option>)}</select></label> : null}
-      {producer ? <p className="reset-device-meta">Mac：<strong>{producer.deviceId}</strong></p> : <p className="empty-inline">尚未偵測到可配對的 Mac Companion</p>}
+      {producer ? <p className="reset-device-meta">Mac：<strong>{producer.deviceId}</strong></p> : <p className="empty-inline">尚未偵測到可配對的 Mac 同步程式</p>}
       {producer && !paired ? <button type="button" className="primary-button" onClick={handlePair}>配對這台 Mac</button> : null}
-      {activeInventory.status === 'key_mismatch' || activeInventory.status === 'unverified' ? <div className="info-note" role="alert"><strong>無法驗證 Mac 回報</strong><span>裝置金鑰已變更或簽章無法驗證。請重新配對新的 deviceId，不會自動換 key。</span></div> : null}
-      {paired && activeInventory.status === 'unavailable' && !progressLabel ? <p className="empty-inline">等待 Mac 更新可用 Reset 券</p> : null}
+      {activeInventory.status === 'key_mismatch' || activeInventory.status === 'unverified' ? <div className="info-note" role="alert"><strong>無法驗證 Mac 回報</strong><span>裝置金鑰已變更或簽章無法驗證。請重新配對新的裝置編號，系統不會自動更換金鑰。</span></div> : null}
+      {paired && activeInventory.status === 'unavailable' && !progressLabel ? <p className="empty-inline">等待 Mac 更新可用重置券</p> : null}
       {activeInventory.status === 'ready' ? <div className="reset-action-card">
         <p>帳號：<strong>{activeInventory.envelope.inventory.accountId}</strong></p>
         <p>券到期：<strong>{activeInventory.credit.expiresAt ?? '未知'}</strong></p>
-        <button type="button" className="primary-button" disabled={submitting} onClick={() => setConfirmation(activeInventory)}>使用 1 張 Reset 券</button>
+        <button type="button" className="primary-button" disabled={submitting} onClick={() => setConfirmation(activeInventory)}>使用 1 張重置券</button>
       </div> : null}
       {progressLabel ? <div className="info-note" role={progress?.status === 'unverified' || progress?.status === 'uncertain' ? 'alert' : 'status'}><strong>{progressLabel}</strong></div> : null}
       {commandError ? <div className="info-note" role="alert"><strong>{commandError}</strong></div> : null}
-    </section> : <div className="info-note"><strong>目前僅供查看</strong><span>使用 Reset Credit 屬於不可逆操作，只有已配對且可驗證的 Mac 才能開啟二次確認。</span></div>}
+    </section> : <div className="info-note"><strong>目前僅供查看</strong><span>使用重置券屬於不可逆操作，只有已配對且可驗證的 Mac 才能開啟二次確認。</span></div>}
 
     {confirmation?.status === 'ready' ? <div className="reset-confirm-backdrop" role="presentation">
       <div className="reset-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-confirm-title">
-        <h2 id="reset-confirm-title">確認使用 Reset 券</h2>
+        <h2 id="reset-confirm-title">確認使用重置券</h2>
         <p>Mac：<strong>{confirmation.pin.deviceId}</strong></p>
         <p>帳號：<strong>{confirmation.envelope.inventory.accountId}</strong></p>
         <p>券到期：<strong>{confirmation.credit.expiresAt ?? '未知'}</strong></p>
-        <p className="reset-confirm-warning"><strong>這次只會使用 1 張 Reset Credit。</strong>此操作不可逆，不會自動改用其他券。</p>
-        <div className="reset-confirm-actions"><button type="button" onClick={() => setConfirmation(undefined)}>取消</button><button type="button" className="primary-button" disabled={submitting} onClick={() => void confirmReset()}>確認使用 1 張 Reset 券</button></div>
+        <p className="reset-confirm-warning"><strong>這次只會使用 1 張重置券。</strong>此操作不可逆，不會自動改用其他券。</p>
+        <div className="reset-confirm-actions"><button type="button" onClick={() => setConfirmation(undefined)}>取消</button><button type="button" className="primary-button" disabled={submitting} onClick={() => void confirmReset()}>確認使用 1 張重置券</button></div>
       </div>
     </div> : null}
   </section>;

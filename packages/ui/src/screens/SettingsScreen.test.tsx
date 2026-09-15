@@ -107,7 +107,7 @@ it('does not call this browser enabled just because another phone is subscribed'
    subscribeSubscriptions:(_uid:string,cb:(v:unknown[])=>void)=>{queueMicrotask(()=>cb([{schemaVersion:1,userId:'alice',browserId:'other-phone',targetDeviceId:'mac-one',enrollmentEpoch:1,applicationServerKey:'BFRdOgvw1mGS7riy-AmAm8sq3A3yTouaefCn1Nnv1YFJXopKLfRAzMX1AQGvq_xGiBUdoWCfuZjeOFq9lDn7aDo',p256dh:'BFRdOgvw1mGS7riy-AmAm8sq3A3yTouaefCn1Nnv1YFJXopKLfRAzMX1AQGvq_xGiBUdoWCfuZjeOFq9lDn7aDo',auth:'8vyc8x-TXwGwYgjlAic24w',endpoint:'https://fcm.googleapis.com/fcm/send/example',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}]));return()=>undefined;}};
  const services={notifications,clock:{now:()=>Date.now(),every:()=>()=>undefined},connectivity:{current:()=> 'online',subscribe:()=>()=>undefined}} as unknown as import('@94ai/client').AppClientServices;
  render(<SettingsScreen userName="Demo" userId="alice" services={services} backendProfile={{mode:'self-hosted',label:'Example'}} onNavigate={()=>undefined} onSignOut={async()=>undefined}/>);
- await waitFor(()=>expect(screen.getByText('找不到在線的 Mac Companion')).toBeInTheDocument());
+ await waitFor(()=>expect(screen.getByText('找不到在線的 Mac 同步程式')).toBeInTheDocument());
  expect(screen.queryByText('推播通知已啟用')).not.toBeInTheDocument();
 });
 it('shows per-family notification write failures rather than silently leaving the switch',()=>{

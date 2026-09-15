@@ -15,7 +15,7 @@ test('mobile homepage is summary-first and read-only without horizontal overflow
 
 test('stale fixture is visibly marked', async ({ page }) => {
   await page.goto('/?fixture=stale');
-  await expect(page.getByText(/資料可能已過期/).first()).toBeVisible();
+  await expect(page.getByText(/部分來源資料較舊/).first()).toBeVisible();
 });
 
 test('installed shell reloads offline and immediately labels cached data offline', async ({ page, context }) => {

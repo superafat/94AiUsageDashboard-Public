@@ -17,7 +17,7 @@ export function formatCountdown(
   if (diffMs <= 0) return options?.elapsedLabel ?? '待刷新';
   if (diffMs < 60_000) {
     const seconds = Math.max(1, Math.floor(diffMs / 1000));
-    return `${seconds}s`;
+    return `${seconds}秒`;
   }
   let minutes = Math.floor(diffMs / 60_000);
   const days = Math.floor(minutes / 1_440);
@@ -25,9 +25,9 @@ export function formatCountdown(
   const hours = Math.floor(minutes / 60);
   minutes -= hours * 60;
   const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0 || days > 0) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
+  if (days > 0) parts.push(`${days}天`);
+  if (hours > 0 || days > 0) parts.push(`${hours}小時`);
+  parts.push(`${minutes}分`);
   return parts.join(' ');
 }
 
